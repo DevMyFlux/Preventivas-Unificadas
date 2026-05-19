@@ -2,7 +2,10 @@
 Cliente HTTP compartilhado para a API Neovero.
 Gerencia autenticação e paginação — independente de unidade.
 """
+import time
 import requests
+
+_token_cache: dict = {"token": None, "expires": 0.0}
 
 URL_BASE = "https://grandmassif.api.neovero.com"
 USUARIO = "admin@myflux.ai"
@@ -20,6 +23,8 @@ SIT_MAP = {1: "Aberta", 2: "Em Andamento", 3: "Fechada", 4: "Cancelada"}
 
 
 def obter_token() -> str:
+    if _token_cache["token"] and time.time() < _token_cache["expires"]:
+        return _token_cache["token"]
     r = requests.post(
         URL_BASE + "/api/token",
         data=f"username={USUARIO}&password={SENHA.replace('@', '%40')}",
@@ -27,7 +32,10 @@ def obter_token() -> str:
         timeout=60,
     )
     r.raise_for_status()
-    return r.json().get("access_token", "")
+    token = r.json().get("access_token", "")
+    _token_cache["token"] = token
+    _token_cache["expires"] = time.time() + 3000  # 50 minutos
+    return token
 
 
 def get_headers() -> dict:

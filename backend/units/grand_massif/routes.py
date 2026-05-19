@@ -463,6 +463,10 @@ def api_preventivas():
 @bp.route("/planos")
 def api_planos():
     try:
+        cached = _cache_module.get(_ck("planos"))
+        if cached:
+            return jsonify(cached)
+
         h = get_headers()
         unidades = {"D": "Dias", "M": "Meses", "A": "Anos", "H": "Horas", "S": "Semanas"}
         todos = paginar(h, {
@@ -479,7 +483,9 @@ def api_planos():
             "procedimento": ((p.get("procedimento") or {}).get("nome") or ""),
             "ativo": p.get("ativo", False),
         } for p in todos]
-        return jsonify({"total": len(itens), "itens": itens})
+        payload = {"total": len(itens), "itens": itens}
+        _cache_module.set(_ck("planos"), payload)
+        return jsonify(payload)
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"erro": str(e)}), 500

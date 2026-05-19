@@ -6,11 +6,15 @@ Suporta dois formatos:
 """
 import glob
 import os
+import time
 from datetime import datetime
 
 import pandas as pd
 
 from units.brasilandia.config import DATA_DIR
+
+_colab_cache: dict = {"df": None, "ts": 0.0}
+_COLAB_TTL = 600  # 10 minutos
 
 PLANILHA_PREFERIDA = "Escala_"
 STATUS_PRESENTES = frozenset({"P", "C", "M", "T", "D", "N"})
@@ -221,7 +225,10 @@ def _selecionar_aba(xl: pd.ExcelFile) -> str:
 
 
 def carregar_colaboradores():
-    """Detecta o arquivo e formato da escala e retorna DataFrame com colaboradores."""
+    """Detecta o arquivo e formato da escala e retorna DataFrame com colaboradores. Cache 10 min."""
+    if _colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL:
+        return _colab_cache["df"]
+
     path = _selecionar_arquivo()
     if not path or not os.path.exists(path):
         print(f"[BR] AVISO: nenhuma planilha de colaboradores em {DATA_DIR}")
@@ -249,6 +256,8 @@ def carregar_colaboradores():
         return None
 
     print(f"[BR] colaboradores OK | {path} | aba={sheet!r} | modo={modo} | {len(df)} pessoas")
+    _colab_cache["df"] = df
+    _colab_cache["ts"] = time.time()
     return df
 
 

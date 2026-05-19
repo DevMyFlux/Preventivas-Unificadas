@@ -5,12 +5,16 @@ Seleciona a aba do mês atual; suporta versionamento mensal (colaboradores05_202
 """
 import glob
 import os
+import time
 import unicodedata
 from datetime import datetime
 
 import pandas as pd
 
 from units.grand_massif.config import DATA_DIR
+
+_colab_cache: dict = {"df": None, "ts": 0.0}
+_COLAB_TTL = 600  # 10 minutos
 
 
 def _ascii_lower(s: str) -> str:
@@ -81,7 +85,10 @@ def _parse_df_raw(df_raw):
 
 
 def carregar_colaboradores():
-    """Carrega o colaboradores*.xlsx mais recente da pasta data/grand_massif."""
+    """Carrega o colaboradores*.xlsx mais recente da pasta data/grand_massif. Cache 10 min."""
+    if _colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL:
+        return _colab_cache["df"]
+
     matches = glob.glob(os.path.join(DATA_DIR, "colaboradores*.xlsx"))
     if not matches:
         print(f"[GM] AVISO: nenhum colaboradores*.xlsx em {DATA_DIR}")
@@ -101,6 +108,8 @@ def carregar_colaboradores():
     df_raw = pd.read_excel(arquivo, sheet_name=sheet, header=None, engine="openpyxl")
     df = _parse_df_raw(df_raw)
     print(f"[GM] colaboradores OK | {arquivo} | aba={sheet!r} | {len(df)} pessoas")
+    _colab_cache["df"] = df
+    _colab_cache["ts"] = time.time()
     return df
 
 
