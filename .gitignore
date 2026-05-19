@@ -31,5 +31,5 @@ Thumbs.db
 # Claude Code
 .claude/
 
-# Dados sensíveis (xlsx com escalas — não versionar)
-data/
+# Dados gerados / temporários
+*.tmp
