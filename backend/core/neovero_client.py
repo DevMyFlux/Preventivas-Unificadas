@@ -24,7 +24,7 @@ def obter_token() -> str:
         URL_BASE + "/api/token",
         data=f"username={USUARIO}&password={SENHA.replace('@', '%40')}",
         headers={**HEADERS_BASE, "content-type": "application/x-www-form-urlencoded"},
-        timeout=15,
+        timeout=60,
     )
     r.raise_for_status()
     return r.json().get("access_token", "")
@@ -42,7 +42,7 @@ def paginar(headers: dict, payload_base: dict, endpoint: str) -> list:
             f"{URL_BASE}{endpoint}",
             headers={**headers, "content-type": "application/json"},
             json={**payload_base, "offset": offset},
-            timeout=30,
+            timeout=60,
         )
         r.raise_for_status()
         regs = r.json().get("records", [])
@@ -60,7 +60,7 @@ def buscar_itens_plano(headers: dict, plano_id, limit: int = 200) -> list:
         r = requests.get(
             f"{URL_BASE}/api/planosmanutencao/{plano_id}/itens?limit={limit}&offset={offset_i}",
             headers=headers,
-            timeout=30,
+            timeout=60,
         )
         if r.status_code != 200:
             break

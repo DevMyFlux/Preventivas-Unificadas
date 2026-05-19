@@ -150,7 +150,7 @@ def _enriquecer_os(o, headers):
     cached = _cache_module.get(ck)
     if cached:
         return cached
-    r = _requests.get(f"{URL_BASE}/api/ordensservico/{os_id}", headers=headers, timeout=15)
+    r = _requests.get(f"{URL_BASE}/api/ordensservico/{os_id}", headers=headers, timeout=60)
     det = r.json() if r.status_code == 200 else o
     _cache_module.set(ck, det)
     return det
