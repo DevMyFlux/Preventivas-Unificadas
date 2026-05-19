@@ -6,8 +6,8 @@ import BrasilandiaModule from './units/brasilandia/BrasilandiaModule';
 type UnitKey = 'grandmassif' | 'brasilandia';
 
 const UNITS: { key: UnitKey; label: string; dotColor: string }[] = [
-  { key: 'grandmassif', label: 'Grand Massif',               dotColor: 'var(--unit-gm-accent)' },
-  { key: 'brasilandia', label: 'Hospital Mun. Brasilândia',  dotColor: 'var(--unit-br-accent)' },
+  { key: 'grandmassif', label: 'Grand Massif Trindade',   dotColor: 'var(--unit-gm-accent)' },
+  { key: 'brasilandia', label: 'Grand Massif Brasilandia', dotColor: 'var(--unit-br-accent)' },
 ];
 
 function useClock(): string {

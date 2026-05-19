@@ -3,7 +3,7 @@ import os
 
 EMPRESA_ID = 2
 OFICINA_ID = 0  # sem filtro de oficina → retorna todos os planos da empresa
-NOME = "Hospital Municipal Brasilândia"
+NOME = "Grand Massif Brasilandia"
 PREFIXO_API = "brasilandia"
 COR_UNIDADE = "#1a5276"  # azul escuro diferenciado
 

@@ -3,7 +3,7 @@ import os
 
 EMPRESA_ID = 3
 OFICINA_ID = 0  # 0 = sem filtro de oficina
-NOME = "Grand Massif"
+NOME = "Grand Massif Trindade"
 PREFIXO_API = "grandmassif"
 COR_UNIDADE = "#1F3864"  # azul primário
 
