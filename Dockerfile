@@ -17,11 +17,14 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 # Copy backend source
 COPY backend/ ./backend/
 
+# Copy planilhas de escala (necessarias em producao)
+COPY data/ ./data/
+
 # Copy frontend build output from stage 1
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 # Expose the port Railway provides
-EXPOSE ${PORT:-8000}
+EXPOSE ${PORT:-8080}
 
-# Run with gunicorn, binding to 0.0.0.0 on Railway's PORT
-CMD ["sh", "-c", "cd backend && gunicorn app:app --bind 0.0.0.0:${PORT:-8000}"]
+# Timeout 300s para suportar iteracao sobre 100+ planos por requisicao
+CMD ["sh", "-c", "cd backend && gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --workers 2"]
