@@ -29,17 +29,31 @@ def _normalizar_status(val) -> str:
     return "F" if not s or s == "NAN" else s
 
 
+def _norm_text(text: str) -> str:
+    return (
+        text.lower()
+        .replace("ã", "a").replace("á", "a").replace("â", "a")
+        .replace("ç", "c").replace("é", "e").replace("ê", "e")
+        .replace("í", "i").replace("ó", "o").replace("ô", "o")
+        .replace("ú", "u").replace("ü", "u")
+    )
+
+
 def _contar_colunas_dia_calendario(df_raw) -> int:
-    n = 0
-    for col_idx in range(5, min(df_raw.shape[1], 45)):
-        val = df_raw.iloc[0, col_idx]
-        try:
-            d = int(float(val))
-            if 1 <= d <= 31:
-                n += 1
-        except Exception:
-            pass
-    return n
+    """Conta colunas com dias (1-31) escaneando as primeiras linhas."""
+    for row_idx in range(min(6, len(df_raw))):
+        n = 0
+        for col_idx in range(5, min(df_raw.shape[1], 45)):
+            val = df_raw.iloc[row_idx, col_idx]
+            try:
+                d = int(float(val))
+                if 1 <= d <= 31:
+                    n += 1
+            except Exception:
+                pass
+        if n >= 4:
+            return n
+    return 0
 
 
 def _eh_formato_calendario(df_raw) -> bool:
@@ -51,22 +65,35 @@ def _detectar_colunas_escala(df_raw) -> dict:
     _CARGOS = {"funcao", "cargo", "funcao/cargo"}
     _HORARIO = {"horario", "hora", "carga horaria"}
 
-    def _norm(text: str) -> str:
-        return (
-            text.lower()
-            .replace("ã", "a").replace("á", "a").replace("â", "a")
-            .replace("ç", "c").replace("é", "e").replace("ê", "e")
-            .replace("í", "i").replace("ó", "o").replace("ô", "o")
-            .replace("ú", "u").replace("ü", "u")
-        )
+    # Detecta a linha de cabeçalho: primeira com >= 10 dias ou com keyword "nome"/"cargo"
+    header_row = 0
+    for r in range(min(6, len(df_raw))):
+        row_vals = df_raw.iloc[r].tolist()
+        n_dias, has_kw = 0, False
+        for v in row_vals:
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                continue
+            s = str(v).strip()
+            norm = _norm_text(s)
+            if norm in _NOMES or norm in _CARGOS:
+                has_kw = True
+            try:
+                d = int(float(s))
+                if 1 <= d <= 31:
+                    n_dias += 1
+            except Exception:
+                pass
+        if n_dias >= 10 or has_kw:
+            header_row = r
+            break
 
-    col_map: dict = {"dias": {}}
+    col_map: dict = {"dias": {}, "header_row": header_row}
     for j in range(df_raw.shape[1]):
-        cell = df_raw.iloc[0, j]
+        cell = df_raw.iloc[header_row, j]
         if cell is None or (isinstance(cell, float) and pd.isna(cell)):
             continue
         raw = str(cell).strip()
-        norm = _norm(raw)
+        norm = _norm_text(raw)
         if norm in _NOMES:
             col_map.setdefault("nome", j)
         elif norm in _CARGOS or norm.startswith("fun"):
@@ -93,20 +120,26 @@ def _parse_calendario(df_raw):
     col_cargo = col_map["cargo"]
     col_horario = col_map["horario"]
     dia_col = col_map["dias"]
+    data_start = col_map.get("header_row", 0) + 1
 
     _SEPARADORES = {"DIURNO": "Diurno", "NOTURNO": "Noturno"}
     rows = []
     turno_atual = "Diurno"
 
-    for i in range(1, len(df_raw)):
+    for i in range(data_start, len(df_raw)):
+        # Detecta separadores DIURNO/NOTURNO na col 0 (independente de col_nome)
+        cell_col0 = df_raw.iloc[i, 0]
+        if isinstance(cell_col0, str) and cell_col0.strip().upper() in _SEPARADORES:
+            turno_atual = _SEPARADORES[cell_col0.strip().upper()]
+            continue
+
         cell_nome = df_raw.iloc[i, col_nome]
         if not isinstance(cell_nome, str) or not cell_nome.strip():
             continue
         nome_strip = cell_nome.strip()
-        nome_upper = nome_strip.upper()
 
-        if nome_upper in _SEPARADORES:
-            turno_atual = _SEPARADORES[nome_upper]
+        if nome_strip.upper() in _SEPARADORES:
+            turno_atual = _SEPARADORES[nome_strip.upper()]
             continue
 
         cargo_cell = df_raw.iloc[i, col_cargo]
@@ -195,12 +228,29 @@ def _parse_tabela_simples(df_raw):
 
 
 def _selecionar_arquivo() -> str | None:
-    # Prefere arquivos de escala (Escala_*.xlsx)
-    escalas = sorted(glob.glob(os.path.join(DATA_DIR, "Escala_*.xlsx")), reverse=True)
+    meses_pt = {
+        1: "janeiro", 2: "fevereiro", 3: "marco", 4: "abril", 5: "maio",
+        6: "junho", 7: "julho", 8: "agosto", 9: "setembro", 10: "outubro",
+        11: "novembro", 12: "dezembro",
+    }
+    mes_atual = meses_pt[datetime.now().month]
+
+    all_xlsx = glob.glob(os.path.join(DATA_DIR, "*.xlsx"))
+    # Case-insensitive: inclui "Escala_*" e "ESCALA DE FOLGA*"
+    escalas = [f for f in all_xlsx if "escala" in os.path.basename(f).lower()]
+
+    # Prefere arquivo cujo nome contém o mês atual
+    for f in escalas:
+        nome = _norm_text(os.path.basename(f))
+        if mes_atual in nome or mes_atual.replace("ç", "c").replace("ã", "a") in nome:
+            return f
+
+    # Fallback: escala mais recente
     if escalas:
-        return escalas[0]
-    # Fallback para colaboradores*.xlsx
-    colabs = glob.glob(os.path.join(DATA_DIR, "colaboradores*.xlsx"))
+        return max(escalas, key=os.path.getmtime)
+
+    # Último fallback: colaboradores*.xlsx
+    colabs = [f for f in all_xlsx if "colaborador" in os.path.basename(f).lower()]
     return max(colabs, key=os.path.basename) if colabs else None
 
 
