@@ -124,7 +124,7 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
 
         plantao_raw = str(df_raw.iloc[i, col_plantao] or "").strip()
         if not plantao_raw or plantao_raw.lower() == "nan":
-            plantao_raw = "Diurno"
+            continue  # linhas sem Plantão são legenda/rodapé, não funcionários
         turno, regime = _parse_plantao(plantao_raw)
 
         horario = str(df_raw.iloc[i, col_horario] or "").strip()
