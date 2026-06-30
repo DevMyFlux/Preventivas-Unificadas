@@ -241,11 +241,24 @@ def _selecionar_arquivo() -> str | None:
     return max(colabs, key=os.path.basename) if colabs else None
 
 
-def _selecionar_aba(xl: pd.ExcelFile) -> str:
-    mes_atual = _MESES_PT[datetime.now().month]
+def _selecionar_aba(xl: pd.ExcelFile, caminho: str = "") -> str:
+    # 1. Tenta usar o mês do nome do arquivo (ex: Escala_Julho_2026_GM.xlsx → julho)
+    nome_arq = _ascii_lower(os.path.basename(caminho))
+    for mes in _MESES_PT.values():
+        mes_norm = _ascii_lower(mes)
+        if mes_norm in nome_arq:
+            for s in xl.sheet_names:
+                if mes_norm in _ascii_lower(s):
+                    return s
+            break  # mês encontrado no nome mas sem aba correspondente → usa mês atual
+
+    # 2. Aba do mês atual
+    mes_atual = _ascii_lower(_MESES_PT[datetime.now().month])
     for s in xl.sheet_names:
-        if mes_atual.lower() in s.lower():
+        if mes_atual in _ascii_lower(s):
             return s
+
+    # 3. Última aba (mês mais recente)
     return xl.sheet_names[-1]
 
 
@@ -262,7 +275,7 @@ def carregar_colaboradores():
         return None
 
     xl = pd.ExcelFile(arquivo, engine="openpyxl")
-    sheet = _selecionar_aba(xl)
+    sheet = _selecionar_aba(xl, arquivo)
     df_raw = pd.read_excel(arquivo, sheet_name=sheet, header=None, engine="openpyxl")
 
     if _tem_colunas_dia(df_raw):
