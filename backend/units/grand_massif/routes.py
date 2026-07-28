@@ -180,6 +180,7 @@ def _montar_item_os(o, headers, colab, hist_tipo, hist_ativo, carga):
             cargo = principal["cargo"]
             escala = principal["escala"]
             score = principal["score"]
+            carga[recomend] += 1  # acumula carga para balancear próximas atribuições
 
     if not recomend:
         status = "Sem candidato"

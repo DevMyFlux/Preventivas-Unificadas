@@ -10,7 +10,7 @@ SCORE_TURNO_CORRETO = 50
 SCORE_EXP_ATIVO = 20
 SCORE_EXP_TIPO = 10
 SCORE_CRITICIDADE = 30
-PENALIDADE_CARGA = 10
+PENALIDADE_CARGA = 25
 
 # ── Keywords por categoria ────────────────────────────────────────────────────
 _KW_REFRIG = [

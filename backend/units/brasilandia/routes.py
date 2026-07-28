@@ -88,7 +88,9 @@ def api_preventivas():
 
         h = get_headers()
         colab = carregar_colaboradores()
-        hist_tipo = hist_ativo = carga = defaultdict(int)
+        hist_tipo = defaultdict(int)
+        hist_ativo = defaultdict(int)
+        carga = defaultdict(int)
 
         planos = paginar(h, {
             "limit": 100,
@@ -127,6 +129,7 @@ def api_preventivas():
                         cargo = principal["cargo"]
                         escala = principal["escala"]
                         score = principal["score"]
+                        carga[recomend] += 1  # acumula carga para balancear próximas atribuições
 
                 preventivas.append({
                     "data_prev": dt_prev.strftime("%d/%m/%Y"),

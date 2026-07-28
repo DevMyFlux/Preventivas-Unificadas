@@ -41,7 +41,7 @@ def _norm_text(text: str) -> str:
 
 def _contar_colunas_dia_calendario(df_raw) -> int:
     """Conta colunas com dias (1-31) escaneando as primeiras linhas."""
-    for row_idx in range(min(6, len(df_raw))):
+    for row_idx in range(min(10, len(df_raw))):
         n = 0
         for col_idx in range(5, min(df_raw.shape[1], 45)):
             val = df_raw.iloc[row_idx, col_idx]
@@ -61,13 +61,14 @@ def _eh_formato_calendario(df_raw) -> bool:
 
 
 def _detectar_colunas_escala(df_raw) -> dict:
-    _NOMES = {"nome", "funcionario", "colaborador", "servidor"}
+    _NOMES = {"nome", "funcionario", "colaborador", "servidor", "diarista"}
     _CARGOS = {"funcao", "cargo", "funcao/cargo"}
+    _PLANTAO = {"plantao", "plantaoo", "plant"}
     _HORARIO = {"horario", "hora", "carga horaria"}
 
     # Detecta a linha de cabeçalho: primeira com >= 10 dias ou com keyword "nome"/"cargo"
     header_row = 0
-    for r in range(min(6, len(df_raw))):
+    for r in range(min(10, len(df_raw))):
         row_vals = df_raw.iloc[r].tolist()
         n_dias, has_kw = 0, False
         for v in row_vals:
@@ -98,6 +99,8 @@ def _detectar_colunas_escala(df_raw) -> dict:
             col_map.setdefault("nome", j)
         elif norm in _CARGOS or norm.startswith("fun"):
             col_map.setdefault("cargo", j)
+        elif norm in _PLANTAO or norm.startswith("plant"):
+            col_map.setdefault("plantao", j)
         elif norm in _HORARIO or "horario" in norm or "horário" in raw.lower():
             col_map.setdefault("horario", j)
         else:
@@ -114,11 +117,29 @@ def _detectar_colunas_escala(df_raw) -> dict:
     return col_map
 
 
+def _parse_plantao_br(p: str) -> tuple[str, str]:
+    """Extrai (turno, regime) de 'Diurno - Ímpar', 'Noturno - Par', 'Diurno', etc."""
+    pts = [x.strip() for x in str(p).split("-")]
+    turno = pts[0].strip().capitalize()
+    if len(pts) > 1:
+        r = _norm_text(pts[1])
+        if "impar" in r:
+            regime = "Ímpar"
+        elif "par" in r:
+            regime = "Par"
+        else:
+            regime = pts[1].strip().capitalize()
+    else:
+        regime = "Fixo"
+    return turno, regime
+
+
 def _parse_calendario(df_raw):
     col_map = _detectar_colunas_escala(df_raw)
     col_nome = col_map["nome"]
     col_cargo = col_map["cargo"]
     col_horario = col_map["horario"]
+    col_plantao = col_map.get("plantao")  # presente apenas no novo formato
     dia_col = col_map["dias"]
     data_start = col_map.get("header_row", 0) + 1
 
@@ -127,7 +148,7 @@ def _parse_calendario(df_raw):
     turno_atual = "Diurno"
 
     for i in range(data_start, len(df_raw)):
-        # Detecta separadores DIURNO/NOTURNO na col 0 (independente de col_nome)
+        # Separadores DIURNO/NOTURNO na col 0 (formato antigo ESCALA DE FOLGA)
         cell_col0 = df_raw.iloc[i, 0]
         if isinstance(cell_col0, str) and cell_col0.strip().upper() in _SEPARADORES:
             turno_atual = _SEPARADORES[cell_col0.strip().upper()]
@@ -147,6 +168,15 @@ def _parse_calendario(df_raw):
         if not cargo or cargo.lower() in ("nan", ""):
             continue
 
+        # Novo formato: Plantão define turno e regime
+        if col_plantao is not None:
+            plantao_raw = str(df_raw.iloc[i, col_plantao] or "").strip()
+            if not plantao_raw or plantao_raw.lower() == "nan":
+                continue  # linha de legenda/rodapé sem plantão → ignorar
+            turno_atual, regime = _parse_plantao_br(plantao_raw)
+        else:
+            regime = "Fixo"  # formato antigo: regime sempre Fixo
+
         horario = str(df_raw.iloc[i, col_horario] or "").strip()
         if horario.lower() == "nan":
             horario = ""
@@ -156,7 +186,7 @@ def _parse_calendario(df_raw):
             "funcionario": nome_strip,
             "cargo": cargo,
             "turno": turno_atual,
-            "regime": "Fixo",
+            "regime": regime,
             "horario": horario,
             "dias_plantao": dias_plantao,
         })
