@@ -11,12 +11,15 @@ import type {
 
 export type UnitApiPrefix = '/api/grandmassif' | '/api/brasilandia'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+
 function buildUrl(prefix: UnitApiPrefix, path: string, dataIni?: string, dataFim?: string): string {
   const params = new URLSearchParams()
   if (dataIni) params.set('data_ini', dataIni)
   if (dataFim) params.set('data_fim', dataFim)
   const qs = params.toString()
-  return qs ? `${prefix}${path}?${qs}` : `${prefix}${path}`
+  const full = `${API_BASE}${prefix}${path}`
+  return qs ? `${full}?${qs}` : full
 }
 
 async function apiFetch<T>(url: string): Promise<T> {
@@ -47,7 +50,7 @@ export function buildUnitClient(prefix: UnitApiPrefix) {
       if (dataIni) params.set('data_ini', dataIni)
       if (dataFim) params.set('data_fim', dataFim)
       const qs = params.toString()
-      const url = qs ? `${prefix}/exportar_preventivas?${qs}` : `${prefix}/exportar_preventivas`
+      const url = qs ? `${API_BASE}${prefix}/exportar_preventivas?${qs}` : `${API_BASE}${prefix}/exportar_preventivas`
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,6 +61,6 @@ export function buildUnitClient(prefix: UnitApiPrefix) {
     },
 
     limparCache: () =>
-      fetch(`${prefix}/limpar_cache`, { method: 'POST' }),
+      fetch(`${API_BASE}${prefix}/limpar_cache`, { method: 'POST' }),
   }
 }

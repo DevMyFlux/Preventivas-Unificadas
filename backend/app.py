@@ -25,24 +25,22 @@ app.register_blueprint(bp_gm)
 app.register_blueprint(bp_br)
 
 
-# ── Serve o frontend React (SPA) ──────────────────────────────────────────────
+# ── Serve o frontend React (SPA) — apenas quando dist existir (não no Vercel) ─
+if os.path.isdir(FRONTEND_DIST):
+    @app.route("/")
+    def index():
+        return send_from_directory(FRONTEND_DIST, "index.html")
 
-@app.route("/")
-def index():
-    return send_from_directory(FRONTEND_DIST, "index.html")
+    @app.route("/assets/<path:filename>")
+    def serve_assets(filename):
+        return send_from_directory(os.path.join(FRONTEND_DIST, "assets"), filename)
 
-
-@app.route("/assets/<path:filename>")
-def serve_assets(filename):
-    return send_from_directory(os.path.join(FRONTEND_DIST, "assets"), filename)
-
-
-@app.route("/<path:path>")
-def catch_all(path):
-    full_path = os.path.join(FRONTEND_DIST, path)
-    if os.path.isfile(full_path):
-        return send_from_directory(FRONTEND_DIST, path)
-    return send_from_directory(FRONTEND_DIST, "index.html")
+    @app.route("/<path:path>")
+    def catch_all(path):
+        full_path = os.path.join(FRONTEND_DIST, path)
+        if os.path.isfile(full_path):
+            return send_from_directory(FRONTEND_DIST, path)
+        return send_from_directory(FRONTEND_DIST, "index.html")
 
 
 if __name__ == "__main__":

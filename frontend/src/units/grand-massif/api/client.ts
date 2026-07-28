@@ -1,5 +1,6 @@
 import type { OSResponse, RecomendacaoResponse, FuncionarioTaskResponse } from './types';
 
+const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const PREFIX = '/api/grandmassif';
 
 function buildUrl(path: string, dataIni?: string, dataFim?: string): string {
@@ -7,7 +8,8 @@ function buildUrl(path: string, dataIni?: string, dataFim?: string): string {
   if (dataIni) params.set('data_ini', dataIni);
   if (dataFim) params.set('data_fim', dataFim);
   const qs = params.toString();
-  return qs ? `${PREFIX}${path}?${qs}` : `${PREFIX}${path}`;
+  const full = `${BASE}${PREFIX}${path}`;
+  return qs ? `${full}?${qs}` : full;
 }
 
 async function apiFetch<T>(url: string): Promise<T> {
@@ -32,5 +34,5 @@ export function fetchTasksPorFuncionario(dataIni?: string, dataFim?: string): Pr
 }
 
 export function exportarRecomendacoes(): void {
-  window.open(`${PREFIX}/exportar`, '_blank');
+  window.open(`${BASE}${PREFIX}/exportar`, '_blank');
 }

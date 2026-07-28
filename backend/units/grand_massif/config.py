@@ -7,4 +7,4 @@ NOME = "HMB"
 PREFIXO_API = "grandmassif"
 COR_UNIDADE = "#1F3864"  # azul primário
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "hmb")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "hmb")
