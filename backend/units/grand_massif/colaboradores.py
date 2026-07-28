@@ -72,15 +72,16 @@ def _detectar_header_calendario(df_raw) -> int:
 
 
 def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
-    """Parse escala calendário do Grand Massif (Escala_*.xlsx)."""
+    """Parse escala calendário — suporta formato com coluna Plantão e formato ESCALA DE FOLGA (DIURNO/NOTURNO)."""
     header_row = _detectar_header_calendario(df_raw)
 
     _NOMES = {"diarista", "funcionario", "funcionário", "nome", "colaborador"}
     _CARGOS = {"cargo", "funcao", "função", "funcao/cargo"}
     _PLANTAO = {"plantão", "plantao", "plant", "planta"}
     _HORARIO = {"horario", "horário", "hora", "carga horaria"}
+    _SEPARADORES = {"DIURNO": "Diurno", "NOTURNO": "Noturno"}
 
-    col_nome, col_cargo, col_plantao, col_horario = 2, 4, 5, 6
+    col_nome, col_cargo, col_plantao, col_horario = 2, 4, None, 6
     dia_col: dict[int, int] = {}
 
     for j in range(df_raw.shape[1]):
@@ -109,7 +110,15 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
         return None
 
     rows = []
+    turno_atual = "Diurno"
+
     for i in range(header_row + 1, len(df_raw)):
+        # Separadores DIURNO/NOTURNO na col 0 (formato ESCALA DE FOLGA)
+        cell_col0 = df_raw.iloc[i, 0]
+        if isinstance(cell_col0, str) and cell_col0.strip().upper() in _SEPARADORES:
+            turno_atual = _SEPARADORES[cell_col0.strip().upper()]
+            continue
+
         cell_nome = df_raw.iloc[i, col_nome]
         if not isinstance(cell_nome, str) or not cell_nome.strip():
             continue
@@ -122,10 +131,13 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
         if not cargo or cargo.lower() in ("nan", ""):
             continue
 
-        plantao_raw = str(df_raw.iloc[i, col_plantao] or "").strip()
-        if not plantao_raw or plantao_raw.lower() == "nan":
-            continue  # linhas sem Plantão são legenda/rodapé, não funcionários
-        turno, regime = _parse_plantao(plantao_raw)
+        if col_plantao is not None:
+            plantao_raw = str(df_raw.iloc[i, col_plantao] or "").strip()
+            if not plantao_raw or plantao_raw.lower() == "nan":
+                continue  # linha de legenda/rodapé → ignorar
+            turno_atual, regime = _parse_plantao(plantao_raw)
+        else:
+            regime = "Fixo"  # formato ESCALA DE FOLGA: turno via separador, regime fixo
 
         horario = str(df_raw.iloc[i, col_horario] or "").strip()
         if horario.lower() == "nan":
@@ -138,7 +150,7 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
         rows.append({
             "funcionario": nome,
             "cargo": cargo,
-            "turno": turno,
+            "turno": turno_atual,
             "regime": regime,
             "horario": horario,
             "dias_plantao": dias_plantao,
