@@ -20,6 +20,20 @@ FRONTEND_DIST = os.path.join(SCRIPT_DIR, "..", "frontend", "dist")
 
 app = Flask(__name__)
 
+
+@app.after_request
+def add_cors(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
+
+
+@app.route("/api/<path:path>", methods=["OPTIONS"])
+def options_handler(**_):
+    return "", 204
+
+
 # ── Registra blueprints por unidade ──────────────────────────────────────────
 app.register_blueprint(bp_gm)
 app.register_blueprint(bp_br)
