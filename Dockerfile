@@ -17,9 +17,6 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 # Copy backend source
 COPY backend/ ./backend/
 
-# Copy planilhas de escala (necessarias em producao)
-COPY data/ ./data/
-
 # Copy frontend build output from stage 1
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
