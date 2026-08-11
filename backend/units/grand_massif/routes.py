@@ -25,7 +25,9 @@ _CACHE_PREFIX = "gm_"
 
 
 def _expandir_ocorrencias(dt_base: date, periodicidade: int, unidade: str, d_ini: date, d_fim: date) -> list:
-    """Gera todas as datas dentro de [d_ini, d_fim] ancoradas em dt_base com a periodicidade do plano."""
+    """Gera todas as ocorrências em [d_ini, d_fim] a partir de dt_base com a periodicidade do plano.
+    Segue somente para frente (como o Neovero): avança de dt_base até entrar no período, então
+    coleta todas as ocorrências até d_fim."""
     try:
         from dateutil.relativedelta import relativedelta
         _MAP = {
@@ -39,25 +41,23 @@ def _expandir_ocorrencias(dt_base: date, periodicidade: int, unidade: str, d_ini
         from datetime import timedelta
         delta = timedelta(days=max(1, periodicidade or 30))
 
-    datas = []
-    limite = 500
+    if dt_base > d_fim:
+        return []
 
     dt = dt_base
     passos = 0
-    while dt >= d_ini and passos < limite:
-        if dt <= d_fim:
-            datas.append(dt)
-        dt = dt - delta
+    while dt < d_ini and passos < 500:
+        dt = dt + delta
         passos += 1
 
-    dt = dt_base + delta
+    datas = []
     passos = 0
-    while dt <= d_fim and passos < limite:
+    while dt <= d_fim and passos < 500:
         datas.append(dt)
         dt = dt + delta
         passos += 1
 
-    return sorted(set(datas))
+    return datas
 
 
 def _ck(key: str) -> str:
