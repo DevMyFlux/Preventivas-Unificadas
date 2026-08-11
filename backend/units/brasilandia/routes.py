@@ -222,3 +222,81 @@ def api_exportar_preventivas():
 def api_limpar_cache():
     n = _cache_module.delete_prefix(_CACHE_PREFIX + "prev_")
     return jsonify({"removidas": n})
+
+
+@bp.route("/debug_itens")
+def api_debug_itens():
+    """Diagnóstico: testa diferentes endpoints Neovero para entender de onde vêm os 1427 itens."""
+    import requests as _req
+    try:
+        d_ini, d_fim = _parse_dates()
+        if not d_ini or not d_fim:
+            return jsonify({"erro": "Informe data_ini e data_fim"}), 400
+
+        h = get_headers()
+        resultado = {}
+
+        # 1. Quantos planos temos com ativo=None?
+        planos = paginar(h, {
+            "limit": 100,
+            "orderBy": [{"column": "descricao", "ascending": True}],
+            "filterGroups": [{"combineOperator": "AND", "filters": filtros_planos(CFG.EMPRESA_ID, CFG.OFICINA_ID, ativo=None)}],
+        }, "/api/planosmanutencao/query")
+        resultado["total_planos"] = len(planos)
+
+        # 2. Total de itens (sem filtro de data) somando todos os planos
+        total_itens_bruto = 0
+        total_itens_no_periodo = 0
+        for p in planos:
+            itens = buscar_itens_plano(h, p["id"])
+            total_itens_bruto += len(itens)
+            for item in itens:
+                dt_str = str(item.get("dataProximaPreventiva") or "")[:10]
+                try:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%d").date()
+                    if d_ini <= dt <= d_fim:
+                        total_itens_no_periodo += 1
+                except Exception:
+                    pass
+        resultado["total_itens_bruto"] = total_itens_bruto
+        resultado["total_itens_no_periodo_dataProximaPreventiva"] = total_itens_no_periodo
+
+        # 3. Tenta endpoint direto de itens com filtro de data
+        from core.neovero_client import URL_BASE
+        payload_itens = {
+            "limit": 500,
+            "offset": 0,
+            "filterGroups": [{"combineOperator": "AND", "filters": [
+                {"property": "plano.empresa.id", "value": CFG.EMPRESA_ID},
+                {"property": "dataProximaPreventiva", "value": {
+                    "rangeType": "CUSTOM",
+                    "customStart": d_ini.strftime("%Y-%m-%dT00:00:00"),
+                    "customEnd": d_fim.strftime("%Y-%m-%dT23:59:59"),
+                }},
+            ]}],
+        }
+        for endpoint in [
+            "/api/planosmanutencao/itens/query",
+            "/api/itenspreventivasmanutencao/query",
+            "/api/itensplanosmanutencao/query",
+        ]:
+            try:
+                r = _req.post(URL_BASE + endpoint,
+                              headers={**h, "content-type": "application/json"},
+                              json=payload_itens, timeout=30)
+                if r.status_code == 200:
+                    data = r.json()
+                    resultado[f"endpoint_{endpoint}"] = {
+                        "status": 200,
+                        "total": data.get("total", data.get("totalRecords", len(data.get("records", data.get("itens", []))))),
+                        "sample_keys": list(data.keys())[:8],
+                    }
+                else:
+                    resultado[f"endpoint_{endpoint}"] = {"status": r.status_code}
+            except Exception as ex:
+                resultado[f"endpoint_{endpoint}"] = {"erro": str(ex)}
+
+        return jsonify(resultado)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
