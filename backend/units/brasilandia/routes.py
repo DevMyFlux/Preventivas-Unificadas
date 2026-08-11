@@ -3,7 +3,7 @@ Blueprint Flask — Hospital Municipal Brasilândia.
 Rotas: /api/brasilandia/*
 """
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, date as _date
 
 from flask import Blueprint, jsonify, request, send_file
 
@@ -17,6 +17,44 @@ from units.brasilandia.motor import indicar_responsavel
 bp = Blueprint("brasilandia", __name__, url_prefix="/api/brasilandia")
 
 _CACHE_PREFIX = "br_"
+
+
+def _expandir_ocorrencias(dt_base: _date, periodicidade: int, unidade: str, d_ini: _date, d_fim: _date) -> list:
+    """Gera todas as datas dentro de [d_ini, d_fim] ancoradas em dt_base com a periodicidade do plano."""
+    try:
+        from dateutil.relativedelta import relativedelta
+        _MAP = {
+            'D': lambda n: relativedelta(days=n),
+            'S': lambda n: relativedelta(weeks=n),
+            'M': lambda n: relativedelta(months=n),
+            'A': lambda n: relativedelta(years=n),
+        }
+        delta = _MAP.get(unidade, lambda n: relativedelta(days=n))(max(1, periodicidade))
+    except Exception:
+        from datetime import timedelta
+        delta = timedelta(days=max(1, periodicidade or 30))
+
+    datas = []
+    limite = 500  # segurança contra loops infinitos
+
+    # Retrocede de dt_base buscando ocorrências dentro do período
+    dt = dt_base
+    passos = 0
+    while dt >= d_ini and passos < limite:
+        if dt <= d_fim:
+            datas.append(dt)
+        dt = dt - delta
+        passos += 1
+
+    # Avança de dt_base buscando ocorrências futuras dentro do período
+    dt = dt_base + delta
+    passos = 0
+    while dt <= d_fim and passos < limite:
+        datas.append(dt)
+        dt = dt + delta
+        passos += 1
+
+    return sorted(set(datas))
 
 
 def _ck(key: str) -> str:
@@ -104,16 +142,16 @@ def api_preventivas():
             tipo = ((p.get("tipoManutencao") or {}).get("descricao") or "").strip()
             oficina = ((p.get("oficina") or {}).get("descricao") or "").strip()
             tipo_classif = f"{tipo} {p.get('descricao', '')} {oficina}".strip()
+            periodicidade = int(p.get("periodicidade") or 0)
+            unidade = str(p.get("periodicidadeTempoUnidade") or "D")
 
             for item in itens:
                 dt_str = str(item.get("dataProximaPreventiva") or "")[:10]
                 if not dt_str:
                     continue
                 try:
-                    dt_prev = datetime.strptime(dt_str, "%Y-%m-%d").date()
+                    dt_base = datetime.strptime(dt_str, "%Y-%m-%d").date()
                 except Exception:
-                    continue
-                if not (d_ini <= dt_prev <= d_fim):
                     continue
 
                 equip = item.get("equipamento") or {}
@@ -121,33 +159,37 @@ def api_preventivas():
                 os_v = item.get("ordemServico") or {}
                 equip_nome = (equip.get("nome") or "").strip()
 
-                recomend, cargo, escala, score = (None, None, None, -999)
-                if colab is not None:
-                    principal, _, _ = indicar_responsavel(colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev)
-                    if principal:
-                        recomend = principal["nome"]
-                        cargo = principal["cargo"]
-                        escala = principal["escala"]
-                        score = principal["score"]
-                        carga[recomend] += 1  # acumula carga para balancear próximas atribuições
+                datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim)
 
-                preventivas.append({
-                    "data_prev": dt_prev.strftime("%d/%m/%Y"),
-                    "dia_par": "Par" if dt_prev.day % 2 == 0 else "Ímpar",
-                    "plano": p.get("descricao", ""),
-                    "tipo": tipo,
-                    "oficina": oficina,
-                    "equipamento": equip_nome or "—",
-                    "setor": setor or "—",
-                    "os_vinculada": os_v.get("numero", "") or "—",
-                    "os_situacao": SIT_MAP.get(os_v.get("situacao"), "—") if os_v.get("situacao") else "—",
-                    "recomendado": recomend,
-                    "cargo": cargo or "",
-                    "escala": escala or "",
-                    "score": score,
-                })
+                for dt_prev in datas:
+                    recomend, cargo, escala, score = (None, None, None, -999)
+                    if colab is not None:
+                        principal, _, _ = indicar_responsavel(colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev)
+                        if principal:
+                            recomend = principal["nome"]
+                            cargo = principal["cargo"]
+                            escala = principal["escala"]
+                            score = principal["score"]
+                            carga[recomend] += 1
+
+                    preventivas.append({
+                        "data_prev": dt_prev.strftime("%d/%m/%Y"),
+                        "dia_par": "Par" if dt_prev.day % 2 == 0 else "Ímpar",
+                        "plano": p.get("descricao", ""),
+                        "tipo": tipo,
+                        "oficina": oficina,
+                        "equipamento": equip_nome or "—",
+                        "setor": setor or "—",
+                        "os_vinculada": os_v.get("numero", "") or "—",
+                        "os_situacao": SIT_MAP.get(os_v.get("situacao"), "—") if os_v.get("situacao") else "—",
+                        "recomendado": recomend,
+                        "cargo": cargo or "",
+                        "escala": escala or "",
+                        "score": score,
+                    })
             print(f"[BR preventivas] {idx}/{len(planos)} | {len(preventivas)} itens")
 
+        preventivas.sort(key=lambda x: datetime.strptime(x["data_prev"], "%d/%m/%Y"))
         _cache_module.set(ck, preventivas)
         return jsonify({"total": len(preventivas), "com_recomendacao": sum(1 for p in preventivas if p["recomendado"]), "itens": preventivas})
     except Exception as e:
