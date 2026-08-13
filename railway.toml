@@ -3,6 +3,6 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "cd /app/backend && gunicorn app:app --bind 0.0.0.0:$PORT --timeout 300 --workers 2"
+startCommand = "sh -c \"cd /app/backend && gunicorn app:app --bind 0.0.0.0:$PORT --timeout 300 --workers 2\""
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
