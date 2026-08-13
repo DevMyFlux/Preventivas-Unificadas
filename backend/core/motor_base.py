@@ -11,6 +11,21 @@ SCORE_EXP_ATIVO = 20
 SCORE_EXP_TIPO = 10
 SCORE_CRITICIDADE = 30
 PENALIDADE_CARGA = 25
+SCORE_HABILIDADE_MAX = 80  # teto da contribuição de habilidades, para não dominar o cargo
+
+# ── Catálogo de habilidades ───────────────────────────────────────────────────
+# Extensível: uma habilidade nova é uma linha aqui, não um novo if/else no motor.
+# categoria deve bater com uma das categorias que classificar_categoria() retorna.
+HABILIDADES = [
+    {"id": "aux_eletrica",      "nome": "Auxiliar de Manutenção Elétrica",        "categoria": "Elétrica",      "peso": 50},
+    {"id": "aux_hidraulica",    "nome": "Auxiliar de Manutenção Hidráulica",      "categoria": "Hidráulico",    "peso": 50},
+    {"id": "aux_refrigeracao",  "nome": "Auxiliar de Manutenção em Refrigeração", "categoria": "Refrigeração",  "peso": 50},
+    {"id": "aux_inspecao",      "nome": "Auxiliar de Inspeção/Rondas",            "categoria": "Inspeção",      "peso": 30},
+    {"id": "tec_eletrica",      "nome": "Técnico em Elétrica",                    "categoria": "Elétrica",      "peso": 80},
+    {"id": "tec_hidraulica",    "nome": "Técnico em Hidráulica",                  "categoria": "Hidráulico",    "peso": 80},
+    {"id": "tec_refrigeracao",  "nome": "Técnico em Refrigeração",                "categoria": "Refrigeração",  "peso": 80},
+]
+HABILIDADES_POR_ID = {h["id"]: h for h in HABILIDADES}
 
 # ── Keywords por categoria ────────────────────────────────────────────────────
 _KW_REFRIG = [
@@ -93,6 +108,20 @@ def _score_funcao(cargo_l: str, categoria: str) -> int:
     return SCORE_FUNCAO_COMPATIVEL
 
 
+def _score_habilidades(habilidades: list, categoria: str) -> int:
+    """Soma o peso das habilidades do colaborador compatíveis com a categoria da preventiva.
+    Extensível: uma habilidade nova em HABILIDADES entra aqui automaticamente, sem
+    precisar tocar nesta função."""
+    if not habilidades:
+        return 0
+    total = sum(
+        HABILIDADES_POR_ID[h]["peso"]
+        for h in habilidades
+        if h in HABILIDADES_POR_ID and HABILIDADES_POR_ID[h]["categoria"] == categoria
+    )
+    return min(total, SCORE_HABILIDADE_MAX)
+
+
 def calcular_score(
     cargo: str,
     categoria: str,
@@ -103,12 +132,14 @@ def calcular_score(
     exp_ativo: int,
     carga_at: int,
     disponivel: bool,
+    habilidades: list | None = None,
 ) -> int:
     if not disponivel:
         return -999
 
     cargo_l = cargo.lower()
     score = _score_funcao(cargo_l, categoria)
+    score += _score_habilidades(habilidades or [], categoria)
 
     turno_l = turno_collab.strip().lower()
     if turno_l == "diurno" and 7 <= hora_os < 19:
@@ -158,6 +189,7 @@ def indicar_responsavel(
         cargo = str(row.get("cargo", ""))
         turno_col = str(row.get("turno", ""))
         regime = str(row.get("regime", ""))
+        habilidades = row.get("habilidades", []) or []
         disp = esta_disponivel_fn(row, data_ref)
         s = calcular_score(
             cargo,
@@ -169,6 +201,7 @@ def indicar_responsavel(
             hist_ativo.get((nome, ativo), 0) if ativo else 0,
             carga.get(nome, 0),
             disp,
+            habilidades,
         )
         scores[nome] = {
             "score": s,

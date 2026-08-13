@@ -3,7 +3,11 @@ Cliente HTTP compartilhado para a API Neovero.
 Gerencia autenticação e paginação — independente de unidade.
 """
 import time
+from concurrent.futures import ThreadPoolExecutor
+
 import requests
+
+MAX_WORKERS_PADRAO = 6  # concorrência controlada para não sobrecarregar a API do Neovero
 
 _token_cache: dict = {"token": None, "expires": 0.0}
 
@@ -79,6 +83,19 @@ def buscar_itens_plano(headers: dict, plano_id, limit: int = 200) -> list:
         if not lote or len(lote) < limit:
             break
     return itens
+
+
+def buscar_itens_varios_planos(headers: dict, planos: list, max_workers: int = MAX_WORKERS_PADRAO) -> dict:
+    """Busca itens de vários planos em paralelo (concorrência controlada).
+    Retorna {plano_id: itens}. Uma requisição HTTP por plano continua sendo feita —
+    só deixam de ser sequenciais, evitando N round-trips um atrás do outro."""
+    resultado = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(buscar_itens_plano, headers, p["id"]): p["id"] for p in planos}
+        for future in futures:
+            plano_id = futures[future]
+            resultado[plano_id] = future.result()
+    return resultado
 
 
 def filtros_planos(empresa_id: int, oficina_id: int = 0, ativo: bool | None = True) -> list:

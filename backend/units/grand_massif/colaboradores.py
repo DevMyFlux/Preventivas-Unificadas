@@ -13,6 +13,7 @@ from datetime import datetime
 
 import pandas as pd
 
+from core import colaboradores_overlay as _overlay
 from units.grand_massif.config import DATA_DIR
 
 _colab_cache: dict = {"df": None, "ts": 0.0}
@@ -307,10 +308,18 @@ def carregar_colaboradores():
         print(f"[GM] ERRO: nenhuma linha válida | {arquivo} | aba={sheet!r}")
         return None
 
+    df = _overlay.aplicar_overlay(df, DATA_DIR)
+
     print(f"[GM] colaboradores OK | {arquivo} | aba={sheet!r} | modo={modo} | {len(df)} pessoas")
     _colab_cache["df"] = df
     _colab_cache["ts"] = time.time()
     return df
+
+
+def invalidar_cache() -> None:
+    """Força o próximo carregar_colaboradores() a reler o Excel + overlay do disco."""
+    _colab_cache["df"] = None
+    _colab_cache["ts"] = 0.0
 
 
 def esta_disponivel(row, data_os) -> bool:

@@ -7,6 +7,8 @@ import type {
   PlanoResponse,
   ColaboradorResponse,
   ColaboradorDetail,
+  HabilidadeResponse,
+  StatusColaborador,
 } from './types'
 
 export type UnitApiPrefix = '/api/grandmassif' | '/api/brasilandia'
@@ -42,8 +44,40 @@ export function buildUnitClient(prefix: UnitApiPrefix) {
     fetchColaboradores: () =>
       apiFetch<ColaboradorResponse>(buildUrl(prefix, '/colaboradores')),
 
-    fetchColaborador: (nome: string) =>
-      apiFetch<ColaboradorDetail>(`${prefix}/colaborador/${encodeURIComponent(nome)}`),
+    fetchColaborador: (nome: string, dataIni?: string, dataFim?: string) =>
+      apiFetch<ColaboradorDetail>(buildUrl(prefix, `/colaborador/${encodeURIComponent(nome)}`, dataIni, dataFim)),
+
+    fetchHabilidades: () =>
+      apiFetch<HabilidadeResponse>(buildUrl(prefix, '/habilidades')),
+
+    atualizarStatusColaborador: async (nome: string, status: StatusColaborador) => {
+      const res = await fetch(`${API_BASE}${prefix}/colaborador/${encodeURIComponent(nome)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) throw new Error(`Erro ${res.status}`)
+      return res.json() as Promise<{ funcionario: string; status: StatusColaborador }>
+    },
+
+    adicionarHabilidade: async (nome: string, habilidadeId: string) => {
+      const res = await fetch(`${API_BASE}${prefix}/colaborador/${encodeURIComponent(nome)}/habilidades`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habilidade_id: habilidadeId }),
+      })
+      if (!res.ok) throw new Error(`Erro ${res.status}`)
+      return res.json() as Promise<{ funcionario: string; habilidades: string[] }>
+    },
+
+    removerHabilidade: async (nome: string, habilidadeId: string) => {
+      const res = await fetch(
+        `${API_BASE}${prefix}/colaborador/${encodeURIComponent(nome)}/habilidades/${encodeURIComponent(habilidadeId)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) throw new Error(`Erro ${res.status}`)
+      return res.json() as Promise<{ funcionario: string; habilidades: string[] }>
+    },
 
     exportarPreventivas: async (itens: unknown[], dataIni?: string, dataFim?: string) => {
       const params = new URLSearchParams()

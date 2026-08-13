@@ -8,10 +8,14 @@ from datetime import datetime, date as _date
 from flask import Blueprint, jsonify, request, send_file
 
 from core import cache as _cache_module
-from core.neovero_client import get_headers, paginar, buscar_itens_plano, filtros_planos, SIT_MAP
+from core import colaboradores_overlay
+from core.motor_base import HABILIDADES, HABILIDADES_POR_ID
+from core.neovero_client import (
+    get_headers, paginar, buscar_itens_varios_planos, filtros_planos, SIT_MAP,
+)
 from core.exporters import gerar_excel_preventivas
 from units.brasilandia import config as CFG
-from units.brasilandia.colaboradores import carregar_colaboradores
+from units.brasilandia.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
 from units.brasilandia.motor import indicar_responsavel
 
 bp = Blueprint("brasilandia", __name__, url_prefix="/api/brasilandia")
@@ -22,7 +26,11 @@ _CACHE_PREFIX = "br_"
 def _expandir_ocorrencias(dt_base: _date, periodicidade: int, unidade: str, d_ini: _date, d_fim: _date) -> list:
     """Gera todas as ocorrências em [d_ini, d_fim] a partir de dt_base com a periodicidade do plano.
     Segue somente para frente (como o Neovero): avança de dt_base até entrar no período, então
-    coleta todas as ocorrências até d_fim."""
+    coleta todas as ocorrências até d_fim. Planos sem periodicidade definida (periodicidade=0)
+    não recorrem no Neovero — geram no máximo uma ocorrência, na própria dataProximaPreventiva."""
+    if not periodicidade:
+        return [dt_base] if d_ini <= dt_base <= d_fim else []
+
     try:
         from dateutil.relativedelta import relativedelta
         _MAP = {
@@ -31,10 +39,10 @@ def _expandir_ocorrencias(dt_base: _date, periodicidade: int, unidade: str, d_in
             'M': lambda n: relativedelta(months=n),
             'A': lambda n: relativedelta(years=n),
         }
-        delta = _MAP.get(unidade, lambda n: relativedelta(days=n))(max(1, periodicidade))
+        delta = _MAP.get(unidade, lambda n: relativedelta(days=n))(periodicidade)
     except Exception:
         from datetime import timedelta
-        delta = timedelta(days=max(1, periodicidade or 30))
+        delta = timedelta(days=periodicidade)
 
     if dt_base > d_fim:
         return []
@@ -59,6 +67,14 @@ def _expandir_ocorrencias(dt_base: _date, periodicidade: int, unidade: str, d_in
 
 def _ck(key: str) -> str:
     return _CACHE_PREFIX + key
+
+
+def _colab_ativos(colab):
+    """Colaboradores Desligados nunca são recomendados para novas preventivas, mas
+    continuam existindo na planilha/overlay e em listagens/histórico."""
+    if colab is None:
+        return None
+    return colab[colab["status"] == "Ativo"]
 
 
 def _parse_dates():
@@ -101,6 +117,8 @@ def api_colaborador(nome):
             "turno": row["turno"],
             "regime": row["regime"],
             "horario": row.get("horario", ""),
+            "status": row.get("status", "Ativo"),
+            "habilidades": list(row.get("habilidades", []) or []),
             "os_abertas": [],
             "total_abertas": 0,
             "total_historico": 0,
@@ -125,7 +143,7 @@ def api_preventivas():
             return jsonify({"total": len(cached), "com_recomendacao": sum(1 for p in cached if p["recomendado"]), "itens": cached})
 
         h = get_headers()
-        colab = carregar_colaboradores()
+        colab = _colab_ativos(carregar_colaboradores())
         hist_tipo = defaultdict(int)
         hist_ativo = defaultdict(int)
         carga = defaultdict(int)
@@ -133,12 +151,14 @@ def api_preventivas():
         planos = paginar(h, {
             "limit": 100,
             "orderBy": [{"column": "descricao", "ascending": True}],
-            "filterGroups": [{"combineOperator": "AND", "filters": filtros_planos(CFG.EMPRESA_ID, CFG.OFICINA_ID, ativo=None)}],
+            "filterGroups": [{"combineOperator": "AND", "filters": filtros_planos(CFG.EMPRESA_ID, CFG.OFICINA_ID, ativo=True)}],
         }, "/api/planosmanutencao/query")
+
+        itens_por_plano = buscar_itens_varios_planos(h, planos)
 
         preventivas = []
         for idx, p in enumerate(planos, 1):
-            itens = buscar_itens_plano(h, p["id"])
+            itens = itens_por_plano.get(p["id"], [])
             tipo = ((p.get("tipoManutencao") or {}).get("descricao") or "").strip()
             oficina = ((p.get("oficina") or {}).get("descricao") or "").strip()
             tipo_classif = f"{tipo} {p.get('descricao', '')} {oficina}".strip()
@@ -237,9 +257,56 @@ def api_colaboradores():
         itens = [{
             "funcionario": r["funcionario"], "cargo": r["cargo"],
             "turno": r["turno"], "regime": r["regime"], "horario": r.get("horario", ""),
+            "status": r.get("status", "Ativo"), "habilidades": list(r.get("habilidades", []) or []),
         } for _, r in colab.iterrows()]
         return jsonify({"total": len(itens), "itens": itens})
     except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/habilidades")
+def api_habilidades():
+    return jsonify({"itens": HABILIDADES})
+
+
+@bp.route("/colaborador/<path:nome>/status", methods=["PATCH"])
+def api_colaborador_status(nome):
+    try:
+        body = request.get_json(silent=True) or {}
+        status = body.get("status")
+        if status not in ("Ativo", "Desligado"):
+            return jsonify({"erro": "status deve ser 'Ativo' ou 'Desligado'"}), 400
+        colaboradores_overlay.set_status(CFG.DATA_DIR, nome, status)
+        invalidar_cache_colaboradores()
+        return jsonify({"funcionario": nome, "status": status})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/colaborador/<path:nome>/habilidades", methods=["POST"])
+def api_colaborador_add_habilidade(nome):
+    try:
+        body = request.get_json(silent=True) or {}
+        habilidade_id = body.get("habilidade_id")
+        if habilidade_id not in HABILIDADES_POR_ID:
+            return jsonify({"erro": f"habilidade_id desconhecido: {habilidade_id!r}"}), 400
+        habilidades = colaboradores_overlay.adicionar_habilidade(CFG.DATA_DIR, nome, habilidade_id)
+        invalidar_cache_colaboradores()
+        return jsonify({"funcionario": nome, "habilidades": habilidades})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/colaborador/<path:nome>/habilidades/<habilidade_id>", methods=["DELETE"])
+def api_colaborador_remove_habilidade(nome, habilidade_id):
+    try:
+        habilidades = colaboradores_overlay.remover_habilidade(CFG.DATA_DIR, nome, habilidade_id)
+        invalidar_cache_colaboradores()
+        return jsonify({"funcionario": nome, "habilidades": habilidades})
+    except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({"erro": str(e)}), 500
 
 

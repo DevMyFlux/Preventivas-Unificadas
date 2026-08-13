@@ -9,15 +9,15 @@ from datetime import datetime, date
 from flask import Blueprint, jsonify, request, send_file
 
 from core import cache as _cache_module
+from core import colaboradores_overlay
+from core.motor_base import HABILIDADES, HABILIDADES_POR_ID
 from core.neovero_client import (
-    get_headers, paginar, buscar_itens_plano, filtros_planos, SIT_MAP, URL_BASE,
+    get_headers, paginar, buscar_itens_varios_planos, filtros_planos, SIT_MAP,
 )
 from core.exporters import gerar_excel_preventivas, gerar_excel_recomendacoes
 from units.grand_massif import config as CFG
-from units.grand_massif.colaboradores import carregar_colaboradores
+from units.grand_massif.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
 from units.grand_massif.motor import indicar_responsavel, extrair_ativo
-
-import requests as _requests
 
 bp = Blueprint("grand_massif", __name__, url_prefix="/api/grandmassif")
 
@@ -27,7 +27,11 @@ _CACHE_PREFIX = "gm_"
 def _expandir_ocorrencias(dt_base: date, periodicidade: int, unidade: str, d_ini: date, d_fim: date) -> list:
     """Gera todas as ocorrências em [d_ini, d_fim] a partir de dt_base com a periodicidade do plano.
     Segue somente para frente (como o Neovero): avança de dt_base até entrar no período, então
-    coleta todas as ocorrências até d_fim."""
+    coleta todas as ocorrências até d_fim. Planos sem periodicidade definida (periodicidade=0)
+    não recorrem no Neovero — geram no máximo uma ocorrência, na própria dataProximaPreventiva."""
+    if not periodicidade:
+        return [dt_base] if d_ini <= dt_base <= d_fim else []
+
     try:
         from dateutil.relativedelta import relativedelta
         _MAP = {
@@ -36,10 +40,10 @@ def _expandir_ocorrencias(dt_base: date, periodicidade: int, unidade: str, d_ini
             'M': lambda n: relativedelta(months=n),
             'A': lambda n: relativedelta(years=n),
         }
-        delta = _MAP.get(unidade, lambda n: relativedelta(days=n))(max(1, periodicidade))
+        delta = _MAP.get(unidade, lambda n: relativedelta(days=n))(periodicidade)
     except Exception:
         from datetime import timedelta
-        delta = timedelta(days=max(1, periodicidade or 30))
+        delta = timedelta(days=periodicidade)
 
     if dt_base > d_fim:
         return []
@@ -64,6 +68,14 @@ def _ck(key: str) -> str:
     return _CACHE_PREFIX + key
 
 
+def _colab_ativos(colab):
+    """Colaboradores Desligados nunca são recomendados para novas preventivas, mas
+    continuam existindo na planilha/overlay e em listagens/histórico."""
+    if colab is None:
+        return None
+    return colab[colab["status"] == "Ativo"]
+
+
 def _parse_dates():
     d_ini = d_fim = None
     try:
@@ -81,36 +93,33 @@ def _parse_dates():
     return d_ini, d_fim
 
 
-def _filtrar_por_data(lista, d_ini=None, d_fim=None):
-    if not d_ini and not d_fim:
-        return lista
-    out = []
-    for o in lista:
-        dt_str = str(o.get("dataHoraAbertura", "") or "")[:10]
-        try:
-            dt = datetime.strptime(dt_str, "%Y-%m-%d").date()
-            if d_ini and dt < d_ini:
-                continue
-            if d_fim and dt > d_fim:
-                continue
-            out.append(o)
-        except Exception:
-            out.append(o)
-    return out
-
-
-def _todas_os_payload():
+def _todas_os_payload(d_ini=None, d_fim=None):
+    """Filtro de OS por empresa, com filtro real de período de abertura quando datas são informadas
+    (sem isso, a consulta trazia o histórico inteiro da empresa a cada chamada)."""
+    filtros = [{"property": "empresa.id", "value": [CFG.EMPRESA_ID]}]
+    if d_ini or d_fim:
+        filtros.append({"property": "periodoAbertura", "value": {
+            "rangeType": "CUSTOM",
+            "customStart": d_ini.strftime("%Y-%m-%dT00:00:00") if d_ini else None,
+            "customEnd": d_fim.strftime("%Y-%m-%dT23:59:59") if d_fim else None,
+        }})
     return {
         "limit": 100,
         "sort": [{"field": "dataHoraAbertura", "dir": "desc"}],
-        "filterGroups": [{
-            "combineOperator": "AND",
-            "filters": [
-                {"property": "empresa.id", "value": [CFG.EMPRESA_ID]},
-                {"property": "periodoAbertura", "value": {"rangeType": "CUSTOM", "customStart": None, "customEnd": None}},
-                {"property": "periodoFechamento", "value": {"rangeType": "CUSTOM", "customStart": None, "customEnd": None}},
-            ],
-        }],
+        "filterGroups": [{"combineOperator": "AND", "filters": filtros}],
+    }
+
+
+def _os_abertas_payload():
+    """OS atualmente abertas/em andamento, independente da data de abertura — usado para
+    calcular a carga de trabalho atual de cada colaborador."""
+    return {
+        "limit": 100,
+        "sort": [{"field": "dataHoraAbertura", "dir": "desc"}],
+        "filterGroups": [{"combineOperator": "AND", "filters": [
+            {"property": "empresa.id", "value": [CFG.EMPRESA_ID]},
+            {"property": "situacao", "value": [1, 2]},
+        ]}],
     }
 
 
@@ -139,12 +148,9 @@ def _carregar_dados_base(headers, d_ini=None, d_fim=None):
         return cached
 
     colab = carregar_colaboradores()
-    todas = paginar(headers, _todas_os_payload(), "/api/ordensservico/query")
-
-    abertas_hoje = [o for o in todas if o.get("situacao") in (1, 2)]
-    fechadas_todas = [o for o in todas if o.get("situacao") == 3]
-    todas_periodo = _filtrar_por_data(todas, d_ini, d_fim)
-    fechadas_periodo = _filtrar_por_data(fechadas_todas, d_ini, d_fim) if (d_ini or d_fim) else fechadas_todas
+    abertas_hoje = paginar(headers, _os_abertas_payload(), "/api/ordensservico/query")
+    todas_periodo = paginar(headers, _todas_os_payload(d_ini, d_fim), "/api/ordensservico/query")
+    fechadas_periodo = [o for o in todas_periodo if o.get("situacao") == 3]
 
     hist_tipo = defaultdict(int)
     hist_ativo = defaultdict(int)
@@ -180,26 +186,17 @@ def _carregar_dados_base(headers, d_ini=None, d_fim=None):
     return result
 
 
-def _enriquecer_os(o, headers):
-    os_id = o.get("id")
-    ck = _ck(f"os_{os_id}")
-    cached = _cache_module.get(ck)
-    if cached:
-        return cached
-    r = _requests.get(f"{URL_BASE}/api/ordensservico/{os_id}", headers=headers, timeout=60)
-    det = r.json() if r.status_code == 200 else o
-    _cache_module.set(ck, det)
-    return det
-
-
-def _montar_item_os(o, headers, colab, hist_tipo, hist_ativo, carga):
-    det = _enriquecer_os(o, headers)
-    tipo = ((det.get("tipoManutencao") or {}).get("descricao") or "").strip()
-    setor = ((det.get("setor") or {}).get("nome") or "").strip()
-    ativo = extrair_ativo(det)
-    resp_atual = ((det.get("responsavel") or {}).get("nome") or "").strip()
+def _montar_item_os(o, colab, hist_tipo, hist_ativo, carga):
+    """A consulta em lote de /api/ordensservico/query já retorna tipoManutencao, setor,
+    equipamento e responsavel completos — confirmado campo a campo contra o GET individual
+    de detalhe (/api/ordensservico/{id}), que devolve exatamente os mesmos dados. Buscar o
+    detalhe OS por OS era uma requisição HTTP inteira e redundante por item."""
+    tipo = ((o.get("tipoManutencao") or {}).get("descricao") or "").strip()
+    setor = ((o.get("setor") or {}).get("nome") or "").strip()
+    ativo = extrair_ativo(o)
+    resp_atual = ((o.get("responsavel") or {}).get("nome") or "").strip()
     sit = SIT_MAP.get(o.get("situacao"), "")
-    dt_str = str(det.get("dataHoraAbertura", "") or "")
+    dt_str = str(o.get("dataHoraAbertura", "") or "")
     try:
         dt_os = datetime.fromisoformat(dt_str[:19].replace("T", " "))
         data_os = dt_os.date()
@@ -307,7 +304,8 @@ def api_recomendacoes():
         if not todas:
             return jsonify({"erro": "Nenhuma OS encontrada no período."}), 404
 
-        resultados = [_montar_item_os(o, h, colab, hist_tipo, hist_ativo, carga) for o in todas]
+        colab_ativos = _colab_ativos(colab)
+        resultados = [_montar_item_os(o, colab_ativos, hist_tipo, hist_ativo, carga) for o in todas]
         _cache_module.set(_ck("recomendacoes"), resultados)
 
         return jsonify({
@@ -403,6 +401,8 @@ def api_colaborador(nome):
             "turno": row["turno"],
             "regime": row["regime"],
             "horario": row.get("horario", ""),
+            "status": row.get("status", "Ativo"),
+            "habilidades": list(row.get("habilidades", []) or []),
             "os_abertas": os_abertas,
             "total_abertas": len(os_abertas),
             "total_historico": sum(tipos.values()),
@@ -434,16 +434,19 @@ def api_preventivas():
         else:
             colab = carregar_colaboradores()
             hist_tipo = hist_ativo = carga = defaultdict(int)
+        colab = _colab_ativos(colab)
 
         planos = paginar(h, {
             "limit": 100,
             "orderBy": [{"column": "descricao", "ascending": True}],
-            "filterGroups": [{"combineOperator": "AND", "filters": filtros_planos(CFG.EMPRESA_ID, CFG.OFICINA_ID, ativo=None)}],
+            "filterGroups": [{"combineOperator": "AND", "filters": filtros_planos(CFG.EMPRESA_ID, CFG.OFICINA_ID, ativo=True)}],
         }, "/api/planosmanutencao/query")
+
+        itens_por_plano = buscar_itens_varios_planos(h, planos)
 
         preventivas = []
         for idx, p in enumerate(planos, 1):
-            itens = buscar_itens_plano(h, p["id"])
+            itens = itens_por_plano.get(p["id"], [])
             tipo = ((p.get("tipoManutencao") or {}).get("descricao") or "").strip()
             oficina = ((p.get("oficina") or {}).get("descricao") or "").strip()
             tipo_classif = f"{tipo} {p.get('descricao', '')} {oficina}".strip()
@@ -541,9 +544,56 @@ def api_colaboradores():
         itens = [{
             "funcionario": r["funcionario"], "cargo": r["cargo"],
             "turno": r["turno"], "regime": r["regime"], "horario": r.get("horario", ""),
+            "status": r.get("status", "Ativo"), "habilidades": list(r.get("habilidades", []) or []),
         } for _, r in colab.iterrows()]
         return jsonify({"total": len(itens), "itens": itens})
     except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/habilidades")
+def api_habilidades():
+    return jsonify({"itens": HABILIDADES})
+
+
+@bp.route("/colaborador/<path:nome>/status", methods=["PATCH"])
+def api_colaborador_status(nome):
+    try:
+        body = request.get_json(silent=True) or {}
+        status = body.get("status")
+        if status not in ("Ativo", "Desligado"):
+            return jsonify({"erro": "status deve ser 'Ativo' ou 'Desligado'"}), 400
+        colaboradores_overlay.set_status(CFG.DATA_DIR, nome, status)
+        invalidar_cache_colaboradores()
+        return jsonify({"funcionario": nome, "status": status})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/colaborador/<path:nome>/habilidades", methods=["POST"])
+def api_colaborador_add_habilidade(nome):
+    try:
+        body = request.get_json(silent=True) or {}
+        habilidade_id = body.get("habilidade_id")
+        if habilidade_id not in HABILIDADES_POR_ID:
+            return jsonify({"erro": f"habilidade_id desconhecido: {habilidade_id!r}"}), 400
+        habilidades = colaboradores_overlay.adicionar_habilidade(CFG.DATA_DIR, nome, habilidade_id)
+        invalidar_cache_colaboradores()
+        return jsonify({"funcionario": nome, "habilidades": habilidades})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/colaborador/<path:nome>/habilidades/<habilidade_id>", methods=["DELETE"])
+def api_colaborador_remove_habilidade(nome, habilidade_id):
+    try:
+        habilidades = colaboradores_overlay.remover_habilidade(CFG.DATA_DIR, nome, habilidade_id)
+        invalidar_cache_colaboradores()
+        return jsonify({"funcionario": nome, "habilidades": habilidades})
+    except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({"erro": str(e)}), 500
 
 

@@ -24,6 +24,7 @@ export default function GrandMassifModule({ dataIni, dataFim }: GrandMassifModul
   const [activeTab, setActiveTab] = useState<TabKey>('planos');
   const [counts, setCounts] = useState<Record<TabKey, number>>({ planos: 0, preventivas: 0, colaboradores: 0 });
   const [selectedColaborador, setSelectedColaborador] = useState<string | null>(null);
+  const [colabReloadSignal, setColabReloadSignal] = useState(0);
 
   const setCount = (key: TabKey) => (n: number) => setCounts((c) => ({ ...c, [key]: n }));
 
@@ -61,6 +62,9 @@ export default function GrandMassifModule({ dataIni, dataFim }: GrandMassifModul
             apiClient={apiClient}
             onCountChange={setCount('colaboradores')}
             onSelectColaborador={setSelectedColaborador}
+            dataIni={dataIni}
+            dataFim={dataFim}
+            reloadSignal={colabReloadSignal}
             autoLoad
           />
         </div>
@@ -70,6 +74,9 @@ export default function GrandMassifModule({ dataIni, dataFim }: GrandMassifModul
         apiClient={apiClient}
         nome={selectedColaborador}
         onClose={() => setSelectedColaborador(null)}
+        dataIni={dataIni}
+        dataFim={dataFim}
+        onChanged={() => setColabReloadSignal((n) => n + 1)}
       />
     </div>
   );

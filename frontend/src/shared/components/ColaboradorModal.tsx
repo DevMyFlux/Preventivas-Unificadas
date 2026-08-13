@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { buildUnitClient } from '../api/client';
-import type { ColaboradorDetail } from '../api/types';
+import type { ColaboradorDetail, Habilidade } from '../api/types';
 import { calcBarWidths } from '../utils/barChart';
 
 type UnitApiClient = ReturnType<typeof buildUnitClient>;
@@ -9,6 +9,9 @@ interface ColaboradorModalProps {
   apiClient: UnitApiClient;
   nome: string | null;
   onClose: () => void;
+  dataIni?: string;
+  dataFim?: string;
+  onChanged?: () => void;
 }
 
 const BAR_COLORS = [
@@ -19,24 +22,86 @@ const BAR_COLORS = [
   'var(--color-danger)',
 ];
 
-export default function ColaboradorModal({ apiClient, nome, onClose }: ColaboradorModalProps) {
+export default function ColaboradorModal({ apiClient, nome, onClose, dataIni, dataFim, onChanged }: ColaboradorModalProps) {
   const [data, setData] = useState<ColaboradorDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [habilidadesCatalogo, setHabilidadesCatalogo] = useState<Habilidade[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  const [novaHabilidade, setNovaHabilidade] = useState('');
+
+  const carregar = () => {
+    if (!nome) return;
+    setError(null);
+    setLoading(true);
+    apiClient
+      .fetchColaborador(nome, dataIni, dataFim)
+      .then(setData)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Erro ao carregar colaborador'))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     if (!nome) return;
     setData(null);
-    setError(null);
-    setLoading(true);
-    apiClient
-      .fetchColaborador(nome)
-      .then(setData)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Erro ao carregar colaborador'))
-      .finally(() => setLoading(false));
-  }, [apiClient, nome]);
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiClient, nome, dataIni, dataFim]);
+
+  useEffect(() => {
+    apiClient.fetchHabilidades().then((r) => setHabilidadesCatalogo(r.itens)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiClient]);
 
   if (!nome) return null;
+
+  const habilidadesDisponiveis = habilidadesCatalogo.filter(
+    (h) => !(data?.habilidades ?? []).includes(h.id),
+  );
+
+  const toggleStatus = async () => {
+    if (!data) return;
+    const novoStatus = data.status === 'Ativo' ? 'Desligado' : 'Ativo';
+    setSalvando(true);
+    try {
+      await apiClient.atualizarStatusColaborador(nome, novoStatus);
+      setData({ ...data, status: novoStatus });
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao alterar status');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const adicionarHabilidade = async () => {
+    if (!data || !novaHabilidade) return;
+    setSalvando(true);
+    try {
+      const r = await apiClient.adicionarHabilidade(nome, novaHabilidade);
+      setData({ ...data, habilidades: r.habilidades });
+      setNovaHabilidade('');
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao adicionar habilidade');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const removerHabilidade = async (habilidadeId: string) => {
+    if (!data) return;
+    setSalvando(true);
+    try {
+      const r = await apiClient.removerHabilidade(nome, habilidadeId);
+      setData({ ...data, habilidades: r.habilidades });
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao remover habilidade');
+    } finally {
+      setSalvando(false);
+    }
+  };
 
   const tiposComPct = data ? calcBarWidths(data.tipos_servico) : [];
   const equipComPct = data ? calcBarWidths(data.equipamentos) : [];
@@ -85,28 +150,56 @@ export default function ColaboradorModal({ apiClient, nome, onClose }: Colaborad
           }}
         >
           <div>
-            <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>{nome}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontWeight: 800, fontSize: '1.05rem' }}>{nome}</span>
+              {data && (
+                <span
+                  className={`badge ${data.status === 'Ativo' ? 'b-ok' : 'b-danger'}`}
+                  style={{ fontSize: '0.7rem' }}
+                >
+                  {data.status}
+                </span>
+              )}
+            </div>
             {data && (
               <div style={{ fontSize: '0.82rem', opacity: 0.85, marginTop: 3 }}>
                 {data.cargo} &nbsp;·&nbsp; {data.turno}
               </div>
             )}
           </div>
-          <button
-            aria-label="Fechar"
-            onClick={onClose}
-            style={{
-              background: 'rgba(255,255,255,0.15)',
-              color: '#fff',
-              padding: '4px 10px',
-              fontSize: '1rem',
-              fontWeight: 700,
-              borderRadius: 'var(--radius-sm)',
-              flexShrink: 0,
-            }}
-          >
-            ✕
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {data && (
+              <button
+                onClick={toggleStatus}
+                disabled={salvando}
+                title={data.status === 'Ativo' ? 'Marcar como Desligado' : 'Reativar colaborador'}
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  padding: '4px 10px',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                {data.status === 'Ativo' ? 'Marcar Desligado' : 'Reativar'}
+              </button>
+            )}
+            <button
+              aria-label="Fechar"
+              onClick={onClose}
+              style={{
+                background: 'rgba(255,255,255,0.15)',
+                color: '#fff',
+                padding: '4px 10px',
+                fontSize: '1rem',
+                fontWeight: 700,
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <div style={{ overflowY: 'auto', padding: '20px', flex: 1 }}>
@@ -134,6 +227,60 @@ export default function ColaboradorModal({ apiClient, nome, onClose }: Colaborad
                   <div className="num">{data.total_historico}</div>
                   <div className="lbl">OS no histórico</div>
                 </div>
+              </div>
+
+              <SectionTitle>Habilidades</SectionTitle>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {data.habilidades.length === 0 && (
+                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                    Nenhuma habilidade cadastrada.
+                  </span>
+                )}
+                {data.habilidades.map((id) => {
+                  const h = habilidadesCatalogo.find((x) => x.id === id);
+                  return (
+                    <span
+                      key={id}
+                      className="badge b-blue"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}
+                    >
+                      {h ? h.nome : id}
+                      <button
+                        aria-label={`Remover habilidade ${h ? h.nome : id}`}
+                        onClick={() => removerHabilidade(id)}
+                        disabled={salvando}
+                        style={{ color: 'inherit', fontWeight: 700, lineHeight: 1, padding: 0 }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+                <select
+                  value={novaHabilidade}
+                  onChange={(e) => setNovaHabilidade(e.target.value)}
+                  aria-label="Selecionar habilidade para adicionar"
+                  disabled={salvando || habilidadesDisponiveis.length === 0}
+                  style={{ flex: 1 }}
+                >
+                  <option value="">
+                    {habilidadesDisponiveis.length === 0 ? 'Todas as habilidades já cadastradas' : 'Selecione uma habilidade…'}
+                  </option>
+                  {habilidadesDisponiveis.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.nome} ({h.categoria})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn-primary"
+                  onClick={adicionarHabilidade}
+                  disabled={salvando || !novaHabilidade}
+                >
+                  Adicionar
+                </button>
               </div>
 
               <SectionTitle>OS Abertas / Em Andamento</SectionTitle>

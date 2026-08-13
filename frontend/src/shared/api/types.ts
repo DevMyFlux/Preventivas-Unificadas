@@ -37,17 +37,32 @@ export interface PlanoResponse {
   itens: Plano[];
 }
 
+export type StatusColaborador = 'Ativo' | 'Desligado';
+
 export interface Colaborador {
   funcionario: string;
   cargo: string;
   turno: string;
   regime: string;
   horario: string;
+  status: StatusColaborador;
+  habilidades: string[];
 }
 
 export interface ColaboradorResponse {
   total: number;
   itens: Colaborador[];
+}
+
+export interface Habilidade {
+  id: string;
+  nome: string;
+  categoria: string;
+  peso: number;
+}
+
+export interface HabilidadeResponse {
+  itens: Habilidade[];
 }
 
 export interface TipoServico {
@@ -74,6 +89,8 @@ export interface ColaboradorDetail {
   turno: string;
   regime: string;
   horario: string;
+  status: StatusColaborador;
+  habilidades: string[];
   os_abertas: OSAberta[];
   total_abertas: number;
   total_historico: number;

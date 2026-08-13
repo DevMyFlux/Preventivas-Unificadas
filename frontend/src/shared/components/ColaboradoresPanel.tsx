@@ -10,6 +10,12 @@ interface ColaboradoresPanelProps {
   onCountChange?: (count: number) => void;
   onSelectColaborador?: (nome: string) => void;
   autoLoad?: boolean;
+  dataIni?: string;
+  dataFim?: string;
+  /** Incremente este valor (ex: a partir de um modal renderizado pelo componente pai)
+   * para forçar a releitura da lista — usado quando o pai controla seu próprio modal
+   * de edição via onSelectColaborador. */
+  reloadSignal?: number;
 }
 
 export default function ColaboradoresPanel({
@@ -17,6 +23,9 @@ export default function ColaboradoresPanel({
   onCountChange,
   onSelectColaborador,
   autoLoad,
+  dataIni,
+  dataFim,
+  reloadSignal,
 }: ColaboradoresPanelProps) {
   const [data, setData] = useState<ColaboradorResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,6 +51,11 @@ export default function ColaboradoresPanel({
     if (autoLoad) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (reloadSignal) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadSignal]);
 
   const handleRowClick = (item: Colaborador) => {
     if (onSelectColaborador) {
@@ -107,6 +121,7 @@ export default function ColaboradoresPanel({
                     <th>Turno</th>
                     <th>Regime</th>
                     <th>Horário</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -114,7 +129,7 @@ export default function ColaboradoresPanel({
                     <tr
                       key={item.funcionario}
                       onClick={() => handleRowClick(item)}
-                      style={{ cursor: 'pointer' }}
+                      style={{ cursor: 'pointer', opacity: item.status === 'Desligado' ? 0.6 : 1 }}
                     >
                       <td style={{ fontWeight: 600, color: 'var(--color-primary)' }}>
                         {item.funcionario}
@@ -123,6 +138,11 @@ export default function ColaboradoresPanel({
                       <td>{item.turno || '—'}</td>
                       <td>{item.regime || '—'}</td>
                       <td>{item.horario || '—'}</td>
+                      <td>
+                        <span className={`badge ${item.status === 'Ativo' ? 'b-ok' : 'b-danger'}`}>
+                          {item.status}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -137,6 +157,9 @@ export default function ColaboradoresPanel({
           apiClient={apiClient}
           nome={selectedNome}
           onClose={() => setSelectedNome(null)}
+          dataIni={dataIni}
+          dataFim={dataFim}
+          onChanged={load}
         />
       )}
     </div>
