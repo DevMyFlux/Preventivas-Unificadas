@@ -214,7 +214,11 @@ def indicar_responsavel(
             "categoria": categoria,
         }
 
-    disponiveis = {n: s for n, s in scores.items() if s["disponivel"] and s["score"] > -999}
+    # -999 é o sentinel exclusivo de "indisponível" (retornado por calcular_score quando
+    # disponivel=False). Não usar o valor do score aqui: com carga acumulada sem teto ao
+    # longo de um mês inteiro de preventivas, o score de alguém disponível também pode
+    # cair abaixo de -999 — usar isso como filtro excluía gente apta por engano.
+    disponiveis = {n: s for n, s in scores.items() if s["disponivel"]}
     if not disponiveis:
         return None, None, scores
 

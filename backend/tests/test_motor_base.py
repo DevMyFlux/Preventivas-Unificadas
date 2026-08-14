@@ -140,3 +140,78 @@ def test_indicar_responsavel_respeita_disponibilidade():
         data_ref=date(2026, 9, 10), esta_disponivel_fn=indisponivel,
     )
     assert principal is None
+
+
+# ── Bug corrigido: carga acumulada não pode excluir gente disponível ────────
+# Antes do fix, `disponiveis` filtrava por `score > -999`, o mesmo sentinel que
+# calcular_score usa para "indisponível". Como a penalidade de carga não tem teto,
+# depois de várias dezenas de atribuições numa geração de preventivas de um mês
+# inteiro, o score de alguém DISPONÍVEL também cruzava -999 e era excluído por
+# engano — confirmado com dados reais: 1440 de 2232 preventivas de Hetrin/Set-2026
+# ficavam sem recomendação por esse motivo, mesmo com os 17 colaboradores aptos.
+
+def test_indicar_responsavel_nao_exclui_disponivel_com_carga_alta():
+    carga_alta = {"Ana Eletricista": 100, "Bruno Encanador": 100}  # 100*25=2500 > qualquer score possível
+    principal, apoio, scores = indicar_responsavel(
+        colaboradores=_colaboradores_df(),
+        hist_tipo={}, hist_ativo={}, carga=carga_alta,
+        tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal is not None
+    assert scores["Ana Eletricista"]["score"] < -999  # o score real ainda é bem negativo...
+    assert principal["nome"] == "Ana Eletricista"      # ...mas ainda é escolhida, por ser a melhor disponível
+
+
+def test_indicar_responsavel_prefere_menor_carga_em_empate_de_score():
+    colab = pd.DataFrame([
+        {"funcionario": "Ana", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Bia", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, apoio, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Ana": 3, "Bia": 1},  # mesmo score técnico, Bia tem menos carga
+        tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal["nome"] == "Bia"
+
+
+def test_indicar_responsavel_score_maior_vence_mesmo_com_mais_carga_moderada():
+    """Uma pequena diferença de carga não deve derrubar quem tem vantagem técnica clara."""
+    colab = pd.DataFrame([
+        {"funcionario": "Especialista", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Generalista", "cargo": "Auxiliar de Manutenção", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Especialista": 1, "Generalista": 0},
+        tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal["nome"] == "Especialista"
+
+
+def test_carga_dinamica_redistribui_ao_longo_de_varias_os():
+    """Simula o efeito cascata da seção 10 do pedido: sem redistribuir carga, a
+    mesma pessoa venceria as N atribuições seguidas. Incrementando carga a cada
+    escolha (como as rotas fazem), a recomendação deve variar."""
+    colab = pd.DataFrame([
+        {"funcionario": "Ana", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Bruno", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Carla", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    carga = {}
+    escolhidos = []
+    for _ in range(6):
+        principal, _, _ = indicar_responsavel(
+            colaboradores=colab, hist_tipo={}, hist_ativo={}, carga=carga,
+            tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+            data_ref=date(2026, 9, 10), hora_ref=10,
+        )
+        escolhidos.append(principal["nome"])
+        carga[principal["nome"]] = carga.get(principal["nome"], 0) + 1
+
+    # com 3 pessoas tecnicamente empatadas e 6 OS, cada uma deve aparecer pelo
+    # menos uma vez — não pode ser sempre a mesma (efeito cascata)
+    assert len(set(escolhidos)) == 3

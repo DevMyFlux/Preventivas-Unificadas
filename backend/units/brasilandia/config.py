@@ -7,4 +7,4 @@ NOME = "HMB"
 PREFIXO_API = "brasilandia"
 COR_UNIDADE = "#1a5276"  # azul escuro diferenciado
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "hetrin")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "hmb")

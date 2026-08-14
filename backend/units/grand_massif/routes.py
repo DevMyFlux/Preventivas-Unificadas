@@ -15,6 +15,7 @@ from core.neovero_client import (
     get_headers, paginar, buscar_itens_varios_planos, filtros_planos, SIT_MAP,
 )
 from core.exporters import gerar_excel_preventivas, gerar_excel_recomendacoes
+from core.planejamento import detectar_paridade, expandir_ocorrencias as _expandir_ocorrencias
 from units.grand_massif import config as CFG
 from units.grand_massif.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
 from units.grand_massif.motor import indicar_responsavel, extrair_ativo
@@ -22,46 +23,6 @@ from units.grand_massif.motor import indicar_responsavel, extrair_ativo
 bp = Blueprint("grand_massif", __name__, url_prefix="/api/grandmassif")
 
 _CACHE_PREFIX = "gm_"
-
-
-def _expandir_ocorrencias(dt_base: date, periodicidade: int, unidade: str, d_ini: date, d_fim: date) -> list:
-    """Gera todas as ocorrências em [d_ini, d_fim] a partir de dt_base com a periodicidade do plano.
-    Segue somente para frente (como o Neovero): avança de dt_base até entrar no período, então
-    coleta todas as ocorrências até d_fim. Planos sem periodicidade definida (periodicidade=0)
-    não recorrem no Neovero — geram no máximo uma ocorrência, na própria dataProximaPreventiva."""
-    if not periodicidade:
-        return [dt_base] if d_ini <= dt_base <= d_fim else []
-
-    try:
-        from dateutil.relativedelta import relativedelta
-        _MAP = {
-            'D': lambda n: relativedelta(days=n),
-            'S': lambda n: relativedelta(weeks=n),
-            'M': lambda n: relativedelta(months=n),
-            'A': lambda n: relativedelta(years=n),
-        }
-        delta = _MAP.get(unidade, lambda n: relativedelta(days=n))(periodicidade)
-    except Exception:
-        from datetime import timedelta
-        delta = timedelta(days=periodicidade)
-
-    if dt_base > d_fim:
-        return []
-
-    dt = dt_base
-    passos = 0
-    while dt < d_ini and passos < 500:
-        dt = dt + delta
-        passos += 1
-
-    datas = []
-    passos = 0
-    while dt <= d_fim and passos < 500:
-        datas.append(dt)
-        dt = dt + delta
-        passos += 1
-
-    return datas
 
 
 def _ck(key: str) -> str:
@@ -452,6 +413,7 @@ def api_preventivas():
             tipo_classif = f"{tipo} {p.get('descricao', '')} {oficina}".strip()
             periodicidade = int(p.get("periodicidade") or 0)
             unidade = str(p.get("periodicidadeTempoUnidade") or "D")
+            paridade = detectar_paridade(p.get("descricao", ""))
 
             for item in itens:
                 dt_str = str(item.get("dataProximaPreventiva") or "")[:10]
@@ -467,7 +429,7 @@ def api_preventivas():
                 os_v = item.get("ordemServico") or {}
                 equip_nome = (equip.get("nome") or "").strip()
 
-                datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim)
+                datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim, paridade)
 
                 for dt_prev in datas:
                     recomend, cargo, escala, score = (None, None, None, -999)
@@ -478,6 +440,7 @@ def api_preventivas():
                             cargo = principal["cargo"]
                             escala = principal["escala"]
                             score = principal["score"]
+                            carga[recomend] += 1
 
                     preventivas.append({
                         "data_prev": dt_prev.strftime("%d/%m/%Y"),
