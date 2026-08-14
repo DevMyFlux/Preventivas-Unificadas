@@ -189,7 +189,7 @@ def api_planos():
         todos = paginar(h, {
             "limit": 100,
             "orderBy": [{"column": "descricao", "ascending": True}],
-            "filterGroups": [{"combineOperator": "AND", "filters": filtros_planos(CFG.EMPRESA_ID, CFG.OFICINA_ID)}],
+            "filterGroups": [{"combineOperator": "AND", "filters": filtros_planos(CFG.EMPRESA_ID, CFG.OFICINA_ID, ativo=None)}],
         }, "/api/planosmanutencao/query")
         itens = [{
             "id": p.get("id", ""),
