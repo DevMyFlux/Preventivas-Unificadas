@@ -6,8 +6,8 @@ import BrasilandiaModule from './units/brasilandia/BrasilandiaModule';
 type UnitKey = 'grandmassif' | 'brasilandia';
 
 const UNITS: { key: UnitKey; label: string; dotColor: string }[] = [
-  { key: 'grandmassif', label: 'HMB',    dotColor: 'var(--unit-gm-accent)' },
-  { key: 'brasilandia', label: 'Hetrin', dotColor: 'var(--unit-br-accent)' },
+  { key: 'grandmassif', label: 'Hetrin', dotColor: 'var(--unit-gm-accent)' },
+  { key: 'brasilandia', label: 'HMB',    dotColor: 'var(--unit-br-accent)' },
 ];
 
 function useClock(): string {
