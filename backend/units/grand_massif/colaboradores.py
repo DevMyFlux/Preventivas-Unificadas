@@ -404,20 +404,45 @@ _MESES_PT = {
 }
 
 
+def _prefere_arquivo(a: str, b: str) -> str:
+    """Escolhe entre dois candidatos do mesmo mês. NÃO usa mtime como critério —
+    num deploy via git/Docker, o checkout normalmente grava a mesma data de
+    modificação (ou uma ordem arbitrária) em todos os arquivos copiados juntos, então
+    'o mais recente por mtime' deixa de significar 'o mais recente de verdade' assim
+    que o app é implantado (confirmado: funcionava local, mas não em produção).
+    Em vez disso, prefere o arquivo cujo conteúdo já é o formato rico/12x36 (mais
+    novo por estrutura, não por metadado de sistema de arquivos)."""
+    try:
+        rico_a = _eh_formato_rico(pd.read_excel(a, sheet_name=0, header=None, engine="openpyxl"))
+    except Exception:
+        rico_a = False
+    try:
+        rico_b = _eh_formato_rico(pd.read_excel(b, sheet_name=0, header=None, engine="openpyxl"))
+    except Exception:
+        rico_b = False
+    if rico_a != rico_b:
+        return a if rico_a else b
+    return max(a, b, key=os.path.getmtime)
+
+
 def _selecionar_arquivo() -> str | None:
     mes_atual = _ascii_lower(_MESES_PT[datetime.now().month])
     all_xlsx = glob.glob(os.path.join(DATA_DIR, "*.xlsx"))
 
-    # 1. Entre as Escala_*.xlsx com nome do mês atual, usa a mais recente (mtime) —
-    # evita pegar um arquivo antigo só porque apareceu primeiro no glob() (ordem do
-    # glob não é garantida), e naturalmente prioriza uma planilha nova (ex: segunda
-    # quinzena) sobre uma antiga do mesmo mês.
+    # 1. Entre as Escala_*.xlsx com nome do mês atual, escolhe por conteúdo (formato
+    # rico tem prioridade) — ver _prefere_arquivo — não por mtime.
     escalas = [f for f in all_xlsx if "escala" in os.path.basename(f).lower()]
     escalas_mes_atual = [f for f in escalas if mes_atual in _ascii_lower(os.path.basename(f))]
     if escalas_mes_atual:
-        return max(escalas_mes_atual, key=os.path.getmtime)
+        melhor = escalas_mes_atual[0]
+        for f in escalas_mes_atual[1:]:
+            melhor = _prefere_arquivo(melhor, f)
+        return melhor
     if escalas:
-        return max(escalas, key=os.path.getmtime)
+        melhor = escalas[0]
+        for f in escalas[1:]:
+            melhor = _prefere_arquivo(melhor, f)
+        return melhor
 
     # 2. Fallback: colaboradores*.xlsx mais recente
     colabs = [f for f in all_xlsx if "colaboradores" in os.path.basename(f).lower()]

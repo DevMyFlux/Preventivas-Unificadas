@@ -131,3 +131,61 @@ def test_nomes_nao_se_repetem_entre_hetrin_e_hmb(colab_hetrin, colab_hmb):
     nomes_hetrin = set(colab_hetrin["funcionario"])
     nomes_hmb = set(colab_hmb["funcionario"])
     assert nomes_hetrin.isdisjoint(nomes_hmb)
+
+
+# ── Seleção de arquivo não pode depender de mtime ────────────────────────────
+# Bug real de produção: escolher entre a planilha antiga e a nova por data de
+# modificação do arquivo funcionava local, mas quebrava depois do deploy — um
+# checkout via git/Docker grava a mesma mtime (ou uma ordem arbitrária) pros
+# arquivos copiados juntos, então "o mais recente por mtime" parava de significar
+# "o mais recente de verdade" assim que o app ia pro Railway. A escolha precisa
+# ser baseada no conteúdo do arquivo (formato rico), nunca em metadado do
+# sistema de arquivos.
+
+_TEM_DOIS_ARQUIVOS_HETRIN = os.path.exists(gm.DATA_DIR) and sum(
+    1 for f in os.listdir(gm.DATA_DIR) if f.lower().endswith(".xlsx") and "escala" in f.lower()
+) >= 2
+_TEM_DOIS_ARQUIVOS_HMB = os.path.exists(br.DATA_DIR) and sum(
+    1 for f in os.listdir(br.DATA_DIR) if f.lower().endswith(".xlsx") and "escala" in f.lower()
+) >= 2
+
+
+@pytest.mark.skipif(not _TEM_DOIS_ARQUIVOS_HETRIN, reason="precisa da planilha antiga e da nova lado a lado")
+def test_hetrin_escolhe_formato_rico_mesmo_com_mtime_do_antigo_mais_novo():
+    caminhos = [
+        os.path.join(gm.DATA_DIR, f) for f in os.listdir(gm.DATA_DIR)
+        if f.lower().endswith(".xlsx") and "escala" in f.lower()
+    ]
+    antigo = max(caminhos, key=lambda f: os.path.getmtime(f) if "hetrin" not in f.lower() else -1)
+    mtimes_originais = {f: os.stat(f) for f in caminhos}
+    # força o antigo a ter a mtime mais recente de todas — simula o cenário real
+    agora = max(os.path.getmtime(f) for f in caminhos) + 3600
+    os.utime(antigo, (agora, agora))
+    try:
+        gm.invalidar_cache()
+        df = gm.carregar_colaboradores()
+        assert "bloqueado" in df.columns  # só o parser novo produz essa coluna
+    finally:
+        st = mtimes_originais[antigo]
+        os.utime(antigo, (st.st_atime, st.st_mtime))
+        gm.invalidar_cache()
+
+
+@pytest.mark.skipif(not _TEM_DOIS_ARQUIVOS_HMB, reason="precisa da planilha antiga e da nova lado a lado")
+def test_hmb_escolhe_formato_rico_mesmo_com_mtime_do_antigo_mais_novo():
+    caminhos = [
+        os.path.join(br.DATA_DIR, f) for f in os.listdir(br.DATA_DIR)
+        if f.lower().endswith(".xlsx") and "escala" in f.lower()
+    ]
+    antigo = max(caminhos, key=lambda f: os.path.getmtime(f) if "escala_hmb" not in f.lower() else -1)
+    mtimes_originais = {f: os.stat(f) for f in caminhos}
+    agora = max(os.path.getmtime(f) for f in caminhos) + 3600
+    os.utime(antigo, (agora, agora))
+    try:
+        br.invalidar_cache()
+        df = br.carregar_colaboradores()
+        assert "tipo_posto" in df.columns  # só o parser novo produz essa coluna
+    finally:
+        st = mtimes_originais[antigo]
+        os.utime(antigo, (st.st_atime, st.st_mtime))
+        br.invalidar_cache()

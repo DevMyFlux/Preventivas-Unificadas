@@ -424,6 +424,27 @@ def _parse_tabela_simples(df_raw):
     return pd.DataFrame(rows).reset_index(drop=True) if rows else None
 
 
+def _prefere_arquivo(a: str, b: str) -> str:
+    """Escolhe entre dois candidatos do mesmo mês. NÃO usa mtime como critério —
+    num deploy via git/Docker, o checkout normalmente grava a mesma data de
+    modificação (ou uma ordem arbitrária) em todos os arquivos copiados juntos, então
+    'o mais recente por mtime' deixa de significar 'o mais recente de verdade' assim
+    que o app é implantado (confirmado: funcionava local, mas não em produção).
+    Em vez disso, prefere o arquivo cujo conteúdo já é o formato rico/por-grupo (mais
+    novo por estrutura, não por metadado de sistema de arquivos)."""
+    try:
+        rico_a = _eh_formato_rico_hmb(pd.read_excel(a, sheet_name=0, header=None, engine="openpyxl"))
+    except Exception:
+        rico_a = False
+    try:
+        rico_b = _eh_formato_rico_hmb(pd.read_excel(b, sheet_name=0, header=None, engine="openpyxl"))
+    except Exception:
+        rico_b = False
+    if rico_a != rico_b:
+        return a if rico_a else b
+    return max(a, b, key=os.path.getmtime)
+
+
 def _selecionar_arquivo() -> str | None:
     meses_pt = {
         1: "janeiro", 2: "fevereiro", 3: "marco", 4: "abril", 5: "maio",
@@ -436,19 +457,24 @@ def _selecionar_arquivo() -> str | None:
     # Case-insensitive: inclui "Escala_*" e "ESCALA DE FOLGA*"
     escalas = [f for f in all_xlsx if "escala" in os.path.basename(f).lower()]
 
-    # Entre as escalas do mês atual, usa a mais recente (mtime) — evita depender da
-    # ordem não garantida do glob() e prioriza naturalmente um arquivo novo (ex: uma
-    # quinzena atualizada) sobre um antigo do mesmo mês.
+    # Entre as escalas do mês atual, escolhe por conteúdo (formato rico tem
+    # prioridade) — ver _prefere_arquivo — não por mtime.
     escalas_mes_atual = [
         f for f in escalas
         if mes_atual in _norm_text(os.path.basename(f)) or mes_atual.replace("ç", "c").replace("ã", "a") in _norm_text(os.path.basename(f))
     ]
     if escalas_mes_atual:
-        return max(escalas_mes_atual, key=os.path.getmtime)
+        melhor = escalas_mes_atual[0]
+        for f in escalas_mes_atual[1:]:
+            melhor = _prefere_arquivo(melhor, f)
+        return melhor
 
-    # Fallback: escala mais recente
+    # Fallback: entre todas as escalas, mesma preferência por conteúdo
     if escalas:
-        return max(escalas, key=os.path.getmtime)
+        melhor = escalas[0]
+        for f in escalas[1:]:
+            melhor = _prefere_arquivo(melhor, f)
+        return melhor
 
     # Último fallback: colaboradores*.xlsx
     colabs = [f for f in all_xlsx if "colaborador" in os.path.basename(f).lower()]
