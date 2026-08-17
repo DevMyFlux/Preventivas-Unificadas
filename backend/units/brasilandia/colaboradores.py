@@ -1,8 +1,11 @@
 """
 Loader de colaboradores — Hospital Municipal Brasilândia.
-Suporta dois formatos:
-  1. Calendário (Escala_Maio_Brasiliana.xlsx): linhas por colaborador, colunas 1-31 com status P/F/FR...
-  2. Tabela simples (colaboradores.xlsx): fallback com Turno/Regime/Horário.
+Suporta três formatos, tentados nesta ordem:
+  1. Rico por grupo (Escala_HMB_*.xlsx a partir de 2026-08): linhas por colaborador com
+     Grupo/Colaborador/Função/Plantão-regime/Horário + colunas de dia (nem sempre
+     começando em 1 — arquivo pode cobrir só uma quinzena). Ver `_eh_formato_rico_hmb`.
+  2. Calendário (Escala_Maio_Brasiliana.xlsx): linhas por colaborador, colunas 1-31 com status P/F/FR...
+  3. Tabela simples (colaboradores.xlsx): fallback com Turno/Regime/Horário.
 """
 import glob
 import os
@@ -12,6 +15,7 @@ from datetime import datetime
 import pandas as pd
 
 from core import colaboradores_overlay as _overlay
+from core.planejamento import detectar_paridade
 from units.brasilandia.config import DATA_DIR
 
 _colab_cache: dict = {"df": None, "ts": 0.0}
@@ -19,6 +23,168 @@ _COLAB_TTL = 600  # 10 minutos
 
 PLANILHA_PREFERIDA = "Escala_"
 STATUS_PRESENTES = frozenset({"P", "C", "M", "T", "D", "N"})
+
+# ── Formato rico por grupo ──────────────────────────────────────────────────────
+# Códigos confirmados na legenda da própria planilha Escala_HMB_* (aba "Premissas e
+# Pendências", item 12): "P = presença; INT = integração; FÉR = férias; PC = posição
+# em contratação/cobertura pendente; vazio = descanso." INT e FÉR não contam como
+# presença disponível pra recomendação — dia de integração não é uma escala normal,
+# e férias é ausência. PC nem chega a aparecer numa linha de colaborador real: as
+# linhas onde ele aparece são vagas/contratações pendentes, filtradas antes disso.
+_CODIGOS_PRESENCA_HMB = frozenset({"P"})
+
+# Termos que identificam uma linha como vaga/posição em aberto, não um colaborador
+# real — confirmado com dado real: "Em processo de contratação", "Cobertura
+# pendente – noturno par".
+_MARCADORES_VAGA_HMB = ("em processo de contratacao", "cobertura pendente")
+
+
+def _eh_vazio(v) -> bool:
+    return v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() == ""
+
+
+def _eh_formato_rico_hmb(df_raw) -> bool:
+    """Detecta o novo formato pela combinação 'grupo' + 'plantao'/'regime' na mesma
+    linha de cabeçalho, seguida de uma linha com números de dia (não necessariamente
+    começando em 1 — o arquivo pode cobrir só uma quinzena)."""
+    for r in range(min(6, len(df_raw) - 1)):
+        row_vals = [str(v).strip().lower() if not _eh_vazio(v) else "" for v in df_raw.iloc[r]]
+        tem_grupo = any("grupo" in v for v in row_vals)
+        tem_regime = any("plantao" in v or "regime" in v for v in row_vals)
+        if not (tem_grupo and tem_regime):
+            continue
+        prox = df_raw.iloc[r + 1]
+        n_dias = sum(1 for v in prox if not _eh_vazio(v) and _eh_numero_dia(v))
+        if n_dias >= 3:
+            return True
+    return False
+
+
+def _eh_numero_dia(v) -> bool:
+    try:
+        d = int(float(str(v).strip()))
+        return 1 <= d <= 31
+    except Exception:
+        return False
+
+
+def _parse_plantao_regime_hmb(texto: str) -> tuple[str, str, str, bool]:
+    """Extrai (turno, regime, tipo_posto, provisorio) de um texto livre como
+    'Diurno par', 'Folguista diurno – provisório ímpar', 'Noturno par – provisório',
+    'Folguista volante – provisório diurno par', 'Regime comercial'.
+    Reaproveita detectar_paridade() (já testado contra falso-positivo tipo
+    'PARTIDA' conter 'PAR') em vez de reimplementar a mesma checagem aqui."""
+    t = texto.lower()
+    if "noturno" in t:
+        turno = "Noturno"
+    elif "diurno" in t:
+        turno = "Diurno"
+    elif "comercial" in t:
+        turno = "Administrativo"
+    else:
+        turno = "Diurno"
+
+    paridade = detectar_paridade(texto)
+    regime = {"PAR": "Par", "IMPAR": "Ímpar"}.get(paridade, "Fixo")
+
+    if "folguista" in t:
+        tipo_posto = "folguista"
+    elif "volante" in t:
+        tipo_posto = "volante"
+    elif "reserva" in t:
+        tipo_posto = "reserva"
+    elif "comercial" in t:
+        tipo_posto = "comercial"
+    else:
+        tipo_posto = "titular"
+
+    provisorio = "provisorio" in t.replace("ó", "o")
+
+    return turno, regime, tipo_posto, provisorio
+
+
+def _parse_formato_rico_hmb(df_raw) -> pd.DataFrame | None:
+    header_row = None
+    for r in range(min(6, len(df_raw) - 1)):
+        row_vals = [str(v).strip().lower() if not _eh_vazio(v) else "" for v in df_raw.iloc[r]]
+        if any("grupo" in v for v in row_vals) and any("plantao" in v or "regime" in v for v in row_vals):
+            header_row = r
+            break
+    if header_row is None:
+        return None
+
+    col_map = {}
+    for j in range(df_raw.shape[1]):
+        cell = df_raw.iloc[header_row, j]
+        if _eh_vazio(cell):
+            continue
+        norm = str(cell).strip().lower()
+        if "grupo" in norm:
+            col_map["grupo"] = j
+        elif "colaborador" in norm:
+            col_map["nome"] = j
+        elif norm == "funcao" or "função" in str(cell).lower():
+            col_map["funcao"] = j
+        elif "plantao" in norm or "regime" in norm:
+            col_map["plantao_regime"] = j
+        elif "horario" in norm or "horário" in str(cell).lower():
+            col_map["horario"] = j
+
+    if "nome" not in col_map:
+        return None
+
+    # linha de dias fica logo abaixo do cabeçalho de rótulos
+    dia_row = header_row + 1
+    dia_col: dict[int, int] = {}
+    for j in range(df_raw.shape[1]):
+        cell = df_raw.iloc[dia_row, j]
+        if not _eh_vazio(cell) and _eh_numero_dia(cell):
+            dia_col[int(float(str(cell).strip()))] = j
+
+    if not dia_col:
+        return None
+
+    rows = []
+    for i in range(dia_row + 1, len(df_raw)):
+        cell_nome = df_raw.iloc[i, col_map["nome"]]
+        if _eh_vazio(cell_nome) or not isinstance(cell_nome, str):
+            continue
+        nome = cell_nome.strip()
+        if not nome or nome.lower() == "nan":
+            continue
+
+        nome_norm = nome.lower().replace("ç", "c").replace("ã", "a").replace("õ", "o")
+        if any(marcador in nome_norm for marcador in _MARCADORES_VAGA_HMB):
+            continue  # vaga/posição em aberto — não é um colaborador real
+
+        grupo = str(df_raw.iloc[i, col_map.get("grupo")] or "").strip() if "grupo" in col_map else ""
+        funcao = str(df_raw.iloc[i, col_map.get("funcao")] or "").strip() if "funcao" in col_map else ""
+        plantao_regime_raw = str(df_raw.iloc[i, col_map.get("plantao_regime")] or "").strip() if "plantao_regime" in col_map else ""
+        horario = str(df_raw.iloc[i, col_map.get("horario")] or "").strip() if "horario" in col_map else ""
+
+        if not funcao or funcao.lower() == "nan":
+            continue  # sem função = linha vazia/rodapé, não colaborador
+
+        turno, regime, tipo_posto, provisorio = _parse_plantao_regime_hmb(plantao_regime_raw)
+
+        dias_plantao = {}
+        for dia, col_idx in dia_col.items():
+            codigo = str(df_raw.iloc[i, col_idx] or "").strip().upper()
+            dias_plantao[dia] = "P" if codigo in _CODIGOS_PRESENCA_HMB else "F"
+
+        rows.append({
+            "funcionario": nome,
+            "cargo": funcao,
+            "grupo": grupo,
+            "turno": turno,
+            "regime": regime,
+            "tipo_posto": tipo_posto,
+            "provisorio": provisorio,
+            "horario": horario,
+            "dias_plantao": dias_plantao,
+        })
+
+    return pd.DataFrame(rows).reset_index(drop=True) if rows else None
 
 
 def _normalizar_status(val) -> str:
@@ -270,11 +436,15 @@ def _selecionar_arquivo() -> str | None:
     # Case-insensitive: inclui "Escala_*" e "ESCALA DE FOLGA*"
     escalas = [f for f in all_xlsx if "escala" in os.path.basename(f).lower()]
 
-    # Prefere arquivo cujo nome contém o mês atual
-    for f in escalas:
-        nome = _norm_text(os.path.basename(f))
-        if mes_atual in nome or mes_atual.replace("ç", "c").replace("ã", "a") in nome:
-            return f
+    # Entre as escalas do mês atual, usa a mais recente (mtime) — evita depender da
+    # ordem não garantida do glob() e prioriza naturalmente um arquivo novo (ex: uma
+    # quinzena atualizada) sobre um antigo do mesmo mês.
+    escalas_mes_atual = [
+        f for f in escalas
+        if mes_atual in _norm_text(os.path.basename(f)) or mes_atual.replace("ç", "c").replace("ã", "a") in _norm_text(os.path.basename(f))
+    ]
+    if escalas_mes_atual:
+        return max(escalas_mes_atual, key=os.path.getmtime)
 
     # Fallback: escala mais recente
     if escalas:
@@ -319,7 +489,12 @@ def carregar_colaboradores():
     sheet = _selecionar_aba(xl)
     df_raw = pd.read_excel(path, sheet_name=sheet, header=None, engine="openpyxl")
 
-    if _eh_formato_calendario(df_raw):
+    if _eh_formato_rico_hmb(df_raw):
+        df = _parse_formato_rico_hmb(df_raw)
+        modo = "rico/por-grupo"
+        if df is None or df.empty:
+            df = None  # layout não bate com o esperado, não arrisca cair num parser errado
+    elif _eh_formato_calendario(df_raw):
         df = _parse_calendario(df_raw)
         modo = "calendario"
         if df is None or df.empty:
@@ -336,6 +511,11 @@ def carregar_colaboradores():
         print(f"[BR] ERRO: nenhuma linha válida | {path} | aba={sheet!r}")
         return None
 
+    for col, default in (("bloqueado", False), ("aviso", None)):
+        if col not in df.columns:
+            df[col] = default
+    df["aviso"] = df["aviso"].astype(object).where(df["aviso"].notna(), None)
+
     df = _overlay.aplicar_overlay(df, DATA_DIR)
 
     print(f"[BR] colaboradores OK | {path} | aba={sheet!r} | modo={modo} | {len(df)} pessoas")
@@ -351,7 +531,12 @@ def invalidar_cache() -> None:
 
 
 def esta_disponivel(row, data_os) -> bool:
-    """Brasilândia verifica status por dia no calendário; fallback Par/Ímpar."""
+    """Brasilândia verifica status por dia no calendário; fallback Par/Ímpar.
+    Colaborador bloqueado (aptidão pendente) nunca está disponível, mesmo com
+    plantão agendado no dia — mesma regra da unidade Hetrin."""
+    if row.get("bloqueado"):
+        return False
+
     dias_plantao = row.get("dias_plantao", {})
     dia = data_os.day
     if dias_plantao:

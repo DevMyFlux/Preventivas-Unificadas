@@ -78,6 +78,8 @@ def api_colaborador(nome):
             "horario": row.get("horario", ""),
             "status": row.get("status", "Ativo"),
             "habilidades": list(row.get("habilidades", []) or []),
+            "bloqueado": bool(row.get("bloqueado", False)),
+            "aviso": row.get("aviso"),
             "os_abertas": [],
             "total_abertas": 0,
             "total_historico": 0,
@@ -218,6 +220,7 @@ def api_colaboradores():
             "funcionario": r["funcionario"], "cargo": r["cargo"],
             "turno": r["turno"], "regime": r["regime"], "horario": r.get("horario", ""),
             "status": r.get("status", "Ativo"), "habilidades": list(r.get("habilidades", []) or []),
+            "bloqueado": bool(r.get("bloqueado", False)), "aviso": r.get("aviso"),
         } for _, r in colab.iterrows()]
         return jsonify({"total": len(itens), "itens": itens})
     except Exception as e:

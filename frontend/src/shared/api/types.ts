@@ -47,6 +47,8 @@ export interface Colaborador {
   horario: string;
   status: StatusColaborador;
   habilidades: string[];
+  bloqueado: boolean;
+  aviso: string | null;
 }
 
 export interface ColaboradorResponse {
@@ -91,6 +93,8 @@ export interface ColaboradorDetail {
   horario: string;
   status: StatusColaborador;
   habilidades: string[];
+  bloqueado: boolean;
+  aviso: string | null;
   os_abertas: OSAberta[];
   total_abertas: number;
   total_historico: number;

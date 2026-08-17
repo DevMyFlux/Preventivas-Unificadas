@@ -160,6 +160,11 @@ export default function ColaboradorModal({ apiClient, nome, onClose, dataIni, da
                   {data.status}
                 </span>
               )}
+              {data?.bloqueado && (
+                <span className="badge b-danger" style={{ fontSize: '0.7rem' }}>
+                  Bloqueado
+                </span>
+              )}
             </div>
             {data && (
               <div style={{ fontSize: '0.82rem', opacity: 0.85, marginTop: 3 }}>
@@ -218,6 +223,24 @@ export default function ColaboradorModal({ apiClient, nome, onClose, dataIni, da
 
           {data && !loading && (
             <>
+              {data.bloqueado && (
+                <div
+                  role="alert"
+                  style={{
+                    background: 'var(--color-danger-light)',
+                    border: '1px solid var(--color-danger)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '10px 14px',
+                    marginBottom: 16,
+                    fontSize: '0.85rem',
+                    color: 'var(--color-danger)',
+                  }}
+                >
+                  <strong>Indisponível para recomendação.</strong>{' '}
+                  {data.aviso ?? 'Colaborador bloqueado — motivo não informado na planilha.'}
+                </div>
+              )}
+
               <div className="cards">
                 <div className="card red">
                   <div className="num">{data.total_abertas}</div>

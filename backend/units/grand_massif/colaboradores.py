@@ -1,9 +1,13 @@
 """
 Loader de colaboradores — Grand Massif Trindade.
-Suporta dois formatos:
-  1. Calendário (Escala_*.xlsx): linhas por colaborador, colunas 1-31 com status P/F/N...
+Suporta três formatos, tentados nesta ordem:
+  1. Rico/12x36 (Escala_HETRIN_*.xlsx a partir de 2026-08): linhas por colaborador com
+     Equipe/Função contratual/Cargo operacional/Turno/Status/Observação + colunas 1-31.
+     Tem coluna "Status" própria (Apto/Condicionado/Transição/...) que pode bloquear a
+     recomendação independente do código do dia — ver `_CODIGOS_FORMATO_RICO`.
+  2. Calendário (Escala_*.xlsx antigas): linhas por colaborador, colunas 1-31 com status P/F/N...
      Coluna "Plantão" fornece turno (Diurno/Noturno) e regime (Par/Ímpar/Fixo).
-  2. Tabela simples (colaboradores*.xlsx): fallback com coluna Plantão para regime Par/Ímpar/Fixo.
+  3. Tabela simples (colaboradores*.xlsx): fallback com coluna Plantão para regime Par/Ímpar/Fixo.
 """
 import glob
 import os
@@ -20,6 +24,33 @@ _colab_cache: dict = {"df": None, "ts": 0.0}
 _COLAB_TTL = 600  # 10 minutos
 
 STATUS_PRESENTES = frozenset({"P", "N", "C", "M", "T", "D"})
+
+# ── Formato rico/12x36 ──────────────────────────────────────────────────────────
+# Códigos e significado extraídos da própria legenda da planilha Escala_HETRIN_*
+# (aba principal, linhas "Legenda"), em 2026-08. Note que o código "T" aqui significa
+# "Transição - não escalar" — o OPOSTO do "T" do formato calendário antigo (linha 22
+# acima, onde T="trabalhando"). Por isso este formato usa seu próprio dicionário,
+# nunca STATUS_PRESENTES, para não colidir os dois significados.
+_CODIGOS_FORMATO_RICO = {
+    "P":   True,   # Plantão diurno
+    "N":   True,   # Plantão noturno
+    "D36": False,  # Descanso de 36h
+    "F":   False,  # Folga administrativa
+    "V":   False,  # Vaga/plantão descoberto
+    "RES": False,  # Reserva/folguista
+    "T":   False,  # Transição - não escalar
+    "C":   False,  # Condicionado à regularização
+    "ADM": False,  # Pré-admissão / não escalado
+}
+
+# Status do colaborador (coluna "Status") que bloqueiam recomendação mesmo que o
+# código do dia mostre presença agendada — confirmado com dado real: Wellington de
+# Souza Brito aparece com plantões N/D36 normais, mas o Status diz "Condicionado"
+# e a Observação "Bloqueado até comprovação NR-10 e autorização". Os demais status
+# (Transição, Admissão DD/MM) já se resolvem sozinhos pelo código do dia — antes da
+# data de admissão o código é ADM (não presente); depois da transição o código vira
+# V (não presente) — não precisam de bloqueio adicional aqui.
+_STATUS_BLOQUEIAM = frozenset({"condicionado"})
 
 
 def _ascii_lower(s: str) -> str:
@@ -49,6 +80,142 @@ def _parse_plantao(p: str) -> tuple[str, str]:
     else:
         regime = "Fixo"
     return turno, regime
+
+
+# ── Formato rico/12x36 ──────────────────────────────────────────────────────────
+
+def _eh_formato_rico(df_raw) -> bool:
+    """Detecta o novo formato pela combinação de cabeçalhos que só ele tem:
+    'equipe'/'colaborador' + 'status' + 'observa' na mesma linha, seguida de
+    colunas de dia. Não confunde com o formato calendário antigo (que não tem
+    coluna Status nem Observação dedicadas)."""
+    for r in range(min(10, len(df_raw))):
+        row_vals = [_ascii_lower(str(v)) if v is not None else "" for v in df_raw.iloc[r]]
+        tem_equipe_ou_colab = any("equipe" in v or "colaborador" in v for v in row_vals)
+        tem_status = any(v.strip() == "status" for v in row_vals)
+        tem_observacao = any("observa" in v for v in row_vals)
+        if tem_equipe_ou_colab and tem_status and tem_observacao:
+            return True
+    return False
+
+
+def _normalizar_turno_rico(turno_raw: str) -> str:
+    """'Diurno alternado' -> 'Diurno', 'Noturno alternado' -> 'Noturno', mantém
+    'Administrativo'/'Reserva' como estão — calcular_score() compara turno com
+    igualdade exata em 'diurno'/'noturno', então precisa chegar limpo."""
+    t = _ascii_lower(turno_raw)
+    if t.startswith("diurno"):
+        return "Diurno"
+    if t.startswith("noturno"):
+        return "Noturno"
+    return turno_raw.strip().capitalize() if turno_raw else ""
+
+
+def _parse_formato_rico_hetrin(df_raw) -> pd.DataFrame | None:
+    header_row = None
+    for r in range(min(10, len(df_raw))):
+        row_vals = [_ascii_lower(str(v)) if v is not None else "" for v in df_raw.iloc[r]]
+        if any("equipe" in v for v in row_vals) and any(v.strip() == "status" for v in row_vals):
+            header_row = r
+            break
+    if header_row is None:
+        return None
+
+    col_map = {}
+    dia_col: dict[int, int] = {}
+    for j in range(df_raw.shape[1]):
+        cell = df_raw.iloc[header_row, j]
+        if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+            continue
+        norm = _ascii_lower(str(cell).strip())
+        if "equipe" in norm:
+            col_map["equipe"] = j
+        elif "colaborador" in norm:
+            col_map["nome"] = j
+        elif "funcao contratual" in norm:
+            col_map["funcao_contratual"] = j
+        elif "cargo operacional" in norm:
+            col_map["cargo_operacional"] = j
+        elif norm == "turno":
+            col_map["turno"] = j
+        elif "horario" in norm:
+            col_map["horario"] = j
+        elif norm == "status":
+            col_map["status"] = j
+        elif "observa" in norm:
+            col_map["observacao"] = j
+        else:
+            try:
+                d = int(float(str(cell).strip()))
+                if 1 <= d <= 31:
+                    dia_col[d] = j
+            except Exception:
+                pass
+
+    if "nome" not in col_map or not dia_col:
+        return None
+
+    _MARCADORES_FIM = {"legenda", "nota", "atencao", "atenção"}
+
+    rows = []
+    for i in range(header_row + 1, len(df_raw)):
+        linha_vazia = all(
+            v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() == ""
+            for v in df_raw.iloc[i]
+        )
+        equipe_cell = df_raw.iloc[i, col_map.get("equipe")] if "equipe" in col_map else None
+        equipe_norm = _ascii_lower(str(equipe_cell).strip()) if equipe_cell is not None else ""
+        if (linha_vazia and rows) or equipe_norm in _MARCADORES_FIM:
+            # linha em branco após já termos colaboradores reais, ou marcador de
+            # Legenda/Nota/Atenção — a partir daqui é rodapé, não mais gente.
+            break
+
+        cell_nome = df_raw.iloc[i, col_map["nome"]]
+        if not isinstance(cell_nome, str) or not cell_nome.strip():
+            continue
+        nome = cell_nome.strip()
+        if nome.upper() in ("NAN", "") or "legenda" in nome.lower():
+            continue
+
+        status_raw = str(df_raw.iloc[i, col_map.get("status")] or "").strip() if "status" in col_map else ""
+        status_norm = _ascii_lower(status_raw)
+
+        # Linha de vaga em aberto (sem pessoa real) — não é um colaborador, não entra na lista.
+        if nome.upper().startswith("VAGA") or status_norm == "vaga":
+            continue
+
+        cargo = str(df_raw.iloc[i, col_map.get("cargo_operacional", col_map["nome"])] or "").strip()
+        funcao_contratual = str(df_raw.iloc[i, col_map.get("funcao_contratual")] or "").strip() if "funcao_contratual" in col_map else ""
+        turno_raw = str(df_raw.iloc[i, col_map.get("turno")] or "").strip() if "turno" in col_map else ""
+        horario = str(df_raw.iloc[i, col_map.get("horario")] or "").strip() if "horario" in col_map else ""
+        observacao = str(df_raw.iloc[i, col_map.get("observacao")] or "").strip() if "observacao" in col_map else ""
+        equipe = str(df_raw.iloc[i, col_map.get("equipe")] or "").strip() if "equipe" in col_map else ""
+
+        dias_plantao = {}
+        for dia, col_idx in dia_col.items():
+            codigo = str(df_raw.iloc[i, col_idx] or "").strip().upper()
+            dias_plantao[dia] = "P" if _CODIGOS_FORMATO_RICO.get(codigo, False) else "F"
+
+        bloqueado = status_norm in _STATUS_BLOQUEIAM
+        aviso = None
+        if bloqueado:
+            aviso = f"Bloqueado — status \"{status_raw}\"" + (f": {observacao}" if observacao else ".")
+
+        rows.append({
+            "funcionario": nome,
+            "cargo": cargo or funcao_contratual,
+            "funcao_contratual": funcao_contratual,
+            "turno": _normalizar_turno_rico(turno_raw),
+            "regime": "",  # não há regime único aqui — a disponibilidade vem do calendário
+            "horario": horario,
+            "equipe": equipe,
+            "status_planilha": status_raw,
+            "bloqueado": bloqueado,
+            "aviso": aviso,
+            "dias_plantao": dias_plantao,
+        })
+
+    return pd.DataFrame(rows).reset_index(drop=True) if rows else None
 
 
 # ── Formato calendário ─────────────────────────────────────────────────────────
@@ -241,11 +408,14 @@ def _selecionar_arquivo() -> str | None:
     mes_atual = _ascii_lower(_MESES_PT[datetime.now().month])
     all_xlsx = glob.glob(os.path.join(DATA_DIR, "*.xlsx"))
 
-    # 1. Prefere Escala_*.xlsx com nome do mês atual
+    # 1. Entre as Escala_*.xlsx com nome do mês atual, usa a mais recente (mtime) —
+    # evita pegar um arquivo antigo só porque apareceu primeiro no glob() (ordem do
+    # glob não é garantida), e naturalmente prioriza uma planilha nova (ex: segunda
+    # quinzena) sobre uma antiga do mesmo mês.
     escalas = [f for f in all_xlsx if "escala" in os.path.basename(f).lower()]
-    for f in escalas:
-        if mes_atual in _ascii_lower(os.path.basename(f)):
-            return f
+    escalas_mes_atual = [f for f in escalas if mes_atual in _ascii_lower(os.path.basename(f))]
+    if escalas_mes_atual:
+        return max(escalas_mes_atual, key=os.path.getmtime)
     if escalas:
         return max(escalas, key=os.path.getmtime)
 
@@ -291,7 +461,12 @@ def carregar_colaboradores():
     sheet = _selecionar_aba(xl, arquivo)
     df_raw = pd.read_excel(arquivo, sheet_name=sheet, header=None, engine="openpyxl")
 
-    if _tem_colunas_dia(df_raw):
+    if _eh_formato_rico(df_raw):
+        df = _parse_formato_rico_hetrin(df_raw)
+        modo = "rico/12x36"
+        if df is None or df.empty:
+            df = None  # não tenta cair pros formatos antigos com esse layout, evita parse errado
+    elif _tem_colunas_dia(df_raw):
         df = _parse_calendario_gm(df_raw)
         modo = "calendario"
         if df is None or df.empty:
@@ -303,6 +478,16 @@ def carregar_colaboradores():
         if df is None or df.empty:
             df = _parse_calendario_gm(df_raw)
             modo = "calendario (fallback)"
+
+    if df is not None and not df.empty:
+        for col, default in (("bloqueado", False), ("aviso", None)):
+            if col not in df.columns:
+                df[col] = default
+        # pandas guarda ausência como NaN (float) numa coluna object com tipos mistos —
+        # json.dumps não recusa NaN, só emite o token literal `NaN`, que não é JSON
+        # válido e quebra JSON.parse no frontend. Normaliza pra None de verdade aqui,
+        # na única passagem, em vez de em cada endpoint que serializa colaborador.
+        df["aviso"] = df["aviso"].astype(object).where(df["aviso"].notna(), None)
 
     if df is None or df.empty:
         print(f"[GM] ERRO: nenhuma linha válida | {arquivo} | aba={sheet!r}")
@@ -323,7 +508,13 @@ def invalidar_cache() -> None:
 
 
 def esta_disponivel(row, data_os) -> bool:
-    """Verifica disponibilidade: usa calendário diário se disponível, senão regime Par/Ímpar/Fixo."""
+    """Verifica disponibilidade: usa calendário diário se disponível, senão regime Par/Ímpar/Fixo.
+    Colaborador bloqueado (ex: status "Condicionado" pendente de documentação) nunca está
+    disponível, mesmo que o código do dia mostre plantão agendado — o bloqueio é sobre
+    aptidão, não sobre escala."""
+    if row.get("bloqueado"):
+        return False
+
     dias_plantao = row.get("dias_plantao", {})
     if dias_plantao:
         status = dias_plantao.get(data_os.day, "F")

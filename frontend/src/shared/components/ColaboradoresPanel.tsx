@@ -130,8 +130,19 @@ export default function ColaboradoresPanel({
                       key={item.funcionario}
                       onClick={() => handleRowClick(item)}
                       style={{ cursor: 'pointer', opacity: item.status === 'Desligado' ? 0.6 : 1 }}
+                      title={item.bloqueado && item.aviso ? item.aviso : undefined}
                     >
                       <td style={{ fontWeight: 600, color: 'var(--color-primary)' }}>
+                        {item.bloqueado && (
+                          <span
+                            aria-label="Bloqueado"
+                            title={item.aviso ?? 'Bloqueado'}
+                            style={{
+                              display: 'inline-block', marginRight: 6, width: 8, height: 8,
+                              borderRadius: '50%', background: 'var(--color-danger)',
+                            }}
+                          />
+                        )}
                         {item.funcionario}
                       </td>
                       <td>{item.cargo || '—'}</td>
@@ -142,6 +153,11 @@ export default function ColaboradoresPanel({
                         <span className={`badge ${item.status === 'Ativo' ? 'b-ok' : 'b-danger'}`}>
                           {item.status}
                         </span>
+                        {item.bloqueado && (
+                          <span className="badge b-danger" style={{ marginLeft: 4 }} title={item.aviso ?? undefined}>
+                            Bloqueado
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
