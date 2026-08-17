@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from core.motor_base import (
+    _cargo_compativel,
     calcular_score,
     classificar_categoria,
     indicar_responsavel,
@@ -215,3 +216,59 @@ def test_carga_dinamica_redistribui_ao_longo_de_varias_os():
     # com 3 pessoas tecnicamente empatadas e 6 OS, cada uma deve aparecer pelo
     # menos uma vez — não pode ser sempre a mesma (efeito cascata)
     assert len(set(escolhidos)) == 3
+
+
+# ── Cargo abreviado (planilha nova da HMB usa "Aux." em vez de "Auxiliar de") ────
+
+@pytest.mark.parametrize("cargo", [
+    "Auxiliar de Manutenção",
+    "Auxiliar de Manutenção/Climatização",
+    "Aux. Manutenção",
+    "Aux. Manutenção / Climatização",
+    "Aux Manutenção",
+])
+def test_cargo_auxiliar_reconhece_forma_abreviada(cargo):
+    assert _cargo_compativel(cargo.lower(), "Hidráulico") is True
+
+
+# ── Bug corrigido: balanceamento não pode fazer cargo incompatível ganhar de ────
+# ── cargo compatível, mesmo com muita carga acumulada no compatível ─────────────
+# Confirmado com dado real (Hetrin, categoria Inspeção): depois de várias dezenas
+# de atribuições numa geração de preventivas, técnicos/eletricistas disponíveis
+# empatavam em score com uma gestora administrativa (cargo incompatível, mas nunca
+# escalada antes = carga sempre 0) — e o desempate por menor carga escolhia a
+# gestora. Isso viola a regra: "balanceamento nunca deve fazer um funcionário
+# tecnicamente inadequado ganhar de um funcionário tecnicamente qualificado".
+
+def test_balanceamento_nao_supera_incompatibilidade_de_cargo():
+    colab = pd.DataFrame([
+        {"funcionario": "Eletricista Sobrecarregado", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Gestora Nunca Escalada", "cargo": "Gestora Local / Engenheira", "turno": "Administrativo", "regime": "Fixo"},
+    ])
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Eletricista Sobrecarregado": 10, "Gestora Nunca Escalada": 0},  # -250 de penalidade no eletricista
+        tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    # mesmo com o eletricista deeply penalizado por carga e a gestora em carga zero,
+    # o eletricista (tecnicamente apto) tem que vencer
+    assert principal["nome"] == "Eletricista Sobrecarregado"
+    assert scores["Gestora Nunca Escalada"]["funcao_compativel"] is False
+    assert scores["Eletricista Sobrecarregado"]["funcao_compativel"] is True
+
+
+def test_ninguem_compativel_ainda_assim_recomenda_alguem():
+    """Sem candidato compatível nenhum, o motor deve preferir indicar o melhor
+    disponível a devolver 'sem candidato' — só não pode preferir o incompatível
+    quando existe opção melhor (coberto pelo teste acima)."""
+    colab = pd.DataFrame([
+        {"funcionario": "Gestora", "cargo": "Gestora Local / Engenheira", "turno": "Administrativo", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal is not None
+    assert principal["nome"] == "Gestora"

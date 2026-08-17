@@ -54,7 +54,11 @@ SETORES_CRITICOS = [
 _CARGO_ELETRICA = ["eletricista", "elétric", "técnico elétric"]
 _CARGO_REFRIG = ["refrigeração", "técnico em refrig", "climatização"]
 _CARGO_HIDRO = ["hidráulico", "encanador"]
-_CARGO_AUXILIAR = ["auxiliar de manutenção"]
+# "Auxiliar de Manutenção" (grafia antiga) e "Aux. Manutenção" (abreviação usada na
+# planilha nova da HMB) são o mesmo cargo — confirmado com dado real: "Aux. Manutenção
+# / Climatização" não batia com a lista antiga e ficava incompatível com Hidráulico
+# por engano.
+_CARGO_AUXILIAR = ["auxiliar de manutenção", "aux. manutenção", "aux manutenção"]
 _CARGO_TECNICO = ["técnico", "eletricista", "mecânico", "oficial", "supervisor"]
 
 
@@ -212,6 +216,7 @@ def indicar_responsavel(
             "disponivel": disp,
             "carga": carga.get(nome, 0),
             "categoria": categoria,
+            "funcao_compativel": _cargo_compativel(cargo.lower(), categoria),
         }
 
     # -999 é o sentinel exclusivo de "indisponível" (retornado por calcular_score quando
@@ -221,6 +226,18 @@ def indicar_responsavel(
     disponiveis = {n: s for n, s in scores.items() if s["disponivel"]}
     if not disponiveis:
         return None, None, scores
+
+    # Balanceamento nunca pode fazer alguém tecnicamente inadequado ganhar de alguém
+    # qualificado. Sem isso, penalidade de carga sem teto podia empatar (ou até
+    # inverter) o score de um técnico já muito utilizado com o de alguém sem cargo
+    # compatível nenhum mas que nunca foi escalado (carga sempre 0) — confirmado com
+    # dado real: um gestor administrativo virou "empatado" com eletricistas/técnicos
+    # disponíveis numa ronda, e o desempate por menor carga escolheu o gestor.
+    # Restringe ao subconjunto compatível quando ele existir; só usa o resto se
+    # ninguém tecnicamente apto estiver disponível (prefere indicar alguém a nada).
+    compativeis = {n: s for n, s in disponiveis.items() if s["funcao_compativel"]}
+    if compativeis:
+        disponiveis = compativeis
 
     ordenados = sorted(
         disponiveis,
