@@ -115,7 +115,7 @@ def expandir_ocorrencias(
     return datas
 
 
-def marcar_ocorrencia_ja_aberta(datas: list, os_vinculada: dict | None) -> list:
+def marcar_ocorrencia_ja_aberta(datas: list, os_vinculada: dict | None, janela_inclui_hoje: bool = True) -> list:
     """Retorna uma lista de booleanos paralela a `datas`: True na ocorrência que já
     virou a OS Aberta/Em Andamento vinculada ao item — ela não é mais um "novo"
     trabalho previsto, já existe como ordem de serviço real.
@@ -128,8 +128,16 @@ def marcar_ocorrencia_ja_aberta(datas: list, os_vinculada: dict | None) -> list:
     lista, porque aquela era a única ocorrência da janela. Por isso só marca (nunca
     descarta) e só quando existe uma ocorrência seguinte na mesma janela — a
     primeira e única ocorrência de uma consulta nunca é marcada, mesmo já tendo OS
-    aberta, para o item nunca desaparecer de uma visão do dia."""
-    if len(datas) <= 1:
+    aberta, para o item nunca desaparecer de uma visão do dia.
+
+    `janela_inclui_hoje` deve vir False para consultas de meses inteiramente no
+    futuro (ex: Setembro, consultado em Agosto). A OS Aberta refletida em
+    `os_vinculada` é o estado de HOJE — ela não vai continuar aberta em setembro,
+    então marcar a primeira ocorrência de um mês futuro usando o estado de hoje só
+    piora a projeção. Confirmado comparando com o relatório da Neovero por vários
+    meses: aplicar a marca só ajudava no mês corrente; nos meses seguintes, não
+    marcar ficava mais perto do número real da Neovero."""
+    if len(datas) <= 1 or not janela_inclui_hoje:
         return [False] * len(datas)
     situacao = (os_vinculada or {}).get("situacao")
     if situacao not in _SITUACOES_EM_ABERTO:

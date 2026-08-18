@@ -85,7 +85,12 @@ class TestMarcarOcorrenciaJaAberta:
     DESCARTAVA a ocorrência da lista, o que fazia itens de "hoje" sumirem por
     completo de consultas de um único dia (a única ocorrência da janela era
     justamente a que tinha OS aberta). Agora só marca, nunca remove — e só marca
-    quando há uma ocorrência seguinte para "assumir" a vaga."""
+    quando há uma ocorrência seguinte para "assumir" a vaga.
+
+    E cobre a terceira rodada de ajuste: comparando com o relatório da Neovero
+    mês a mês, marcar a ocorrência usando o estado de OS de HOJE piorava a
+    projeção de meses futuros (a OS aberta hoje não vai continuar aberta em
+    outubro) — por isso `janela_inclui_hoje=False` desliga a marcação inteira."""
 
     def test_situacao_aberta_marca_primeira_ocorrencia(self):
         datas = [date(2026, 8, 21), date(2026, 8, 28)]
@@ -103,6 +108,12 @@ class TestMarcarOcorrenciaJaAberta:
         datas = [date(2026, 8, 21), date(2026, 8, 28)]
         assert marcar_ocorrencia_ja_aberta(datas, None) == [False, False]
         assert marcar_ocorrencia_ja_aberta(datas, {}) == [False, False]
+
+    def test_janela_futura_nunca_marca_mesmo_com_os_aberta(self):
+        """Consulta de um mês inteiramente futuro (ex: setembro, consultado em
+        agosto) não deve usar o estado de OS de hoje para marcar nada."""
+        datas = [date(2026, 9, 4), date(2026, 9, 11)]
+        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 1}, janela_inclui_hoje=False) == [False, False]
 
     def test_lista_vazia_nao_quebra(self):
         assert marcar_ocorrencia_ja_aberta([], {"situacao": 1}) == []

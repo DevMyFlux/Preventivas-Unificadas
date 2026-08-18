@@ -383,6 +383,7 @@ def api_preventivas():
         d_ini, d_fim = _parse_dates()
         if not d_ini or not d_fim:
             return jsonify({"erro": "Informe data_ini e data_fim."}), 400
+        janela_inclui_hoje = d_ini <= date.today() <= d_fim
 
         ck = _ck(f"prev_{d_ini}_{d_fim}")
         cached = _cache_module.get(ck)
@@ -438,7 +439,7 @@ def api_preventivas():
                 equip_nome = (equip.get("nome") or "").strip()
 
                 datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim, paridade)
-                ja_com_os_flags = marcar_ocorrencia_ja_aberta(datas, item.get("ordemServico"))
+                ja_com_os_flags = marcar_ocorrencia_ja_aberta(datas, item.get("ordemServico"), janela_inclui_hoje)
 
                 for dt_prev, ja_com_os in zip(datas, ja_com_os_flags):
                     recomend, cargo, escala, score = (None, None, None, -999)
