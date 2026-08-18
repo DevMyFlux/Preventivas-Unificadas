@@ -77,18 +77,24 @@ export default function PreventivasPanel({ apiClient, dataIni, dataFim, onCountC
     ? filterPreventivas(data.itens, responsavel, localDataIni, localDataFim, search, statusOS, recomendacao)
     : [];
 
+  const previstas = filtered.filter((p) => !p.atrasada);
   const comRecomendacao = filtered.filter((p) => p.recomendado).length;
+  const emAtraso = filtered.filter((p) => p.atrasada).length;
 
   return (
     <div>
       <div className="cards">
         <div className="card">
-          <div className="num">{data ? filtered.length : '—'}</div>
-          <div className="lbl">Total Preventivas</div>
+          <div className="num">{data ? previstas.length : '—'}</div>
+          <div className="lbl">Previstas</div>
         </div>
         <div className="card green">
           <div className="num">{data ? comRecomendacao : '—'}</div>
           <div className="lbl">Com Recomendação</div>
+        </div>
+        <div className="card red">
+          <div className="num">{data ? emAtraso : '—'}</div>
+          <div className="lbl">Em Atraso</div>
         </div>
       </div>
 
@@ -192,7 +198,12 @@ export default function PreventivasPanel({ apiClient, dataIni, dataFim, onCountC
                     key={`${item.data_prev}-${item.plano}-${idx}`}
                     className={!item.recomendado ? 'row-danger' : ''}
                   >
-                    <td>{item.data_prev}</td>
+                    <td>
+                      {item.data_prev}
+                      {item.atrasada && (
+                        <span className="badge b-danger" style={{ marginLeft: 6 }}>Em atraso</span>
+                      )}
+                    </td>
                     <td>{item.dia_par}</td>
                     <td>{item.plano}</td>
                     <td>{item.tipo}</td>

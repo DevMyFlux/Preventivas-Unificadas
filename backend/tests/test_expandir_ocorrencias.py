@@ -10,7 +10,7 @@ reintrodução da duplicação que causou a divergência original).
 """
 from datetime import date
 
-from core.planejamento import expandir_ocorrencias
+from core.planejamento import descartar_ocorrencia_em_aberto, expandir_ocorrencias
 from units.grand_massif.routes import _expandir_ocorrencias as expandir_gm
 from units.brasilandia.routes import _expandir_ocorrencias as expandir_br
 
@@ -73,3 +73,34 @@ def test_unidade_desconhecida_cai_para_dias():
     d_ini, d_fim = date(2026, 9, 1), date(2026, 9, 30)
     datas = expandir_ocorrencias(dt_base, 10, "X", d_ini, d_fim)
     assert datas == [date(2026, 9, 1), date(2026, 9, 11), date(2026, 9, 21)]
+
+
+class TestDescartarOcorrenciaEmAberto:
+    """Cobre o bug encontrado com dados reais da Neovero: plano PM RONDA PERIÓDICA -
+    FANCOILS HIDRÔNICOS mostrava 28 no MyFlux contra 14 na Neovero. Os 14 itens já
+    tinham uma OS Aberta vinculada — a primeira ocorrência da expansão é justamente
+    essa OS que já existe, contá-la de novo como "prevista" duplicava a manutenção."""
+
+    def test_situacao_aberta_descarta_primeira_ocorrencia(self):
+        datas = [date(2026, 8, 21), date(2026, 8, 28)]
+        assert descartar_ocorrencia_em_aberto(datas, {"situacao": 1}) == [date(2026, 8, 28)]
+
+    def test_situacao_em_andamento_descarta_primeira_ocorrencia(self):
+        datas = [date(2026, 8, 21), date(2026, 8, 28)]
+        assert descartar_ocorrencia_em_aberto(datas, {"situacao": 2}) == [date(2026, 8, 28)]
+
+    def test_situacao_fechada_mantem_todas(self):
+        datas = [date(2026, 8, 21), date(2026, 8, 28)]
+        assert descartar_ocorrencia_em_aberto(datas, {"situacao": 3}) == datas
+
+    def test_sem_os_vinculada_mantem_todas(self):
+        datas = [date(2026, 8, 21)]
+        assert descartar_ocorrencia_em_aberto(datas, None) == datas
+        assert descartar_ocorrencia_em_aberto(datas, {}) == datas
+
+    def test_lista_vazia_nao_quebra(self):
+        assert descartar_ocorrencia_em_aberto([], {"situacao": 1}) == []
+
+    def test_unica_ocorrencia_com_os_aberta_fica_vazia(self):
+        datas = [date(2026, 8, 21)]
+        assert descartar_ocorrencia_em_aberto(datas, {"situacao": 1}) == []

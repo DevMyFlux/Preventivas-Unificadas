@@ -3,6 +3,7 @@
 export interface Preventiva {
   data_prev: string;
   dia_par: string;
+  atrasada: boolean;
   plano: string;
   tipo: string;
   oficina: string;
@@ -19,6 +20,7 @@ export interface Preventiva {
 export interface PreventivaResponse {
   total: number;
   com_recomendacao: number;
+  em_atraso: number;
   itens: Preventiva[];
 }
 

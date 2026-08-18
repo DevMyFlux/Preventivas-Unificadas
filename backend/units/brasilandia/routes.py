@@ -3,7 +3,7 @@ Blueprint Flask — Hospital Municipal Brasilândia.
 Rotas: /api/brasilandia/*
 """
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, date
 
 from flask import Blueprint, jsonify, request, send_file
 
@@ -14,7 +14,7 @@ from core.neovero_client import (
     get_headers, paginar, buscar_itens_varios_planos, filtros_planos, os_vinculada_visivel,
 )
 from core.exporters import gerar_excel_preventivas
-from core.planejamento import detectar_paridade, expandir_ocorrencias as _expandir_ocorrencias
+from core.planejamento import detectar_paridade, descartar_ocorrencia_em_aberto, expandir_ocorrencias as _expandir_ocorrencias
 from units.brasilandia import config as CFG
 from units.brasilandia.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
 from units.brasilandia.motor import indicar_responsavel
@@ -101,7 +101,12 @@ def api_preventivas():
         ck = _ck(f"prev_{d_ini}_{d_fim}")
         cached = _cache_module.get(ck)
         if cached:
-            return jsonify({"total": len(cached), "com_recomendacao": sum(1 for p in cached if p["recomendado"]), "itens": cached})
+            return jsonify({
+                "total": len(cached),
+                "com_recomendacao": sum(1 for p in cached if p["recomendado"]),
+                "em_atraso": sum(1 for p in cached if p.get("atrasada")),
+                "itens": cached,
+            })
 
         h = get_headers()
         colab = _colab_ativos(carregar_colaboradores())
@@ -142,6 +147,7 @@ def api_preventivas():
                 equip_nome = (equip.get("nome") or "").strip()
 
                 datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim, paridade)
+                datas = descartar_ocorrencia_em_aberto(datas, item.get("ordemServico"))
 
                 for dt_prev in datas:
                     recomend, cargo, escala, score = (None, None, None, -999)
@@ -157,6 +163,7 @@ def api_preventivas():
                     preventivas.append({
                         "data_prev": dt_prev.strftime("%d/%m/%Y"),
                         "dia_par": "Par" if dt_prev.day % 2 == 0 else "Ímpar",
+                        "atrasada": dt_prev < date.today(),
                         "plano": p.get("descricao", ""),
                         "tipo": tipo,
                         "oficina": oficina,
@@ -173,7 +180,12 @@ def api_preventivas():
 
         preventivas.sort(key=lambda x: datetime.strptime(x["data_prev"], "%d/%m/%Y"))
         _cache_module.set(ck, preventivas)
-        return jsonify({"total": len(preventivas), "com_recomendacao": sum(1 for p in preventivas if p["recomendado"]), "itens": preventivas})
+        return jsonify({
+            "total": len(preventivas),
+            "com_recomendacao": sum(1 for p in preventivas if p["recomendado"]),
+            "em_atraso": sum(1 for p in preventivas if p["atrasada"]),
+            "itens": preventivas,
+        })
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"erro": str(e)}), 500

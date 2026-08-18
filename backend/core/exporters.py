@@ -40,7 +40,7 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
     ws.title = "Preventivas Previstas"
 
     cols = [
-        ("Data Prevista", 16), ("Dia", 10), ("Plano", 40), ("Tipo", 18), ("Oficina", 18),
+        ("Data Prevista", 16), ("Dia", 10), ("Em Atraso", 12), ("Plano", 40), ("Tipo", 18), ("Oficina", 18),
         ("Equipamento", 28), ("Setor", 30), ("OS Vinculada", 14), ("Status OS", 16),
         ("Recomendado", 30), ("Cargo", 30), ("Escala", 16),
     ]
@@ -64,6 +64,7 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
         for col, val in enumerate([
             r.get("data_prev", ""),
             r.get("dia_par", ""),
+            "Em Atraso" if r.get("atrasada") else "",
             r.get("plano", ""),
             r.get("tipo", ""),
             r.get("oficina", ""),

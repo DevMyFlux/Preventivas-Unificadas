@@ -14,6 +14,8 @@ from dateutil.relativedelta import relativedelta
 _RE_IMPAR = re.compile(r"\bIMPAR\b")
 _RE_PAR = re.compile(r"\bPAR\b")
 
+_SITUACOES_EM_ABERTO = frozenset({1, 2})  # Aberta, Em Andamento
+
 
 def _remover_acentos(texto: str) -> str:
     nfkd = unicodedata.normalize("NFKD", texto)
@@ -110,4 +112,22 @@ def expandir_ocorrencias(
         dt = _corrigir_paridade(dt + delta, paridade)
         passos += 1
 
+    return datas
+
+
+def descartar_ocorrencia_em_aberto(datas: list, os_vinculada: dict | None) -> list:
+    """Remove a primeira ocorrência da lista quando o item já tem uma OS Aberta ou
+    Em Andamento vinculada.
+
+    Essa primeira ocorrência é justamente a que já virou a OS em aberto — ela já
+    existe como ordem de serviço real, não é mais "planejada". Contá-la de novo na
+    lista de preventivas previstas duplica a mesma manutenção (uma vez como OS
+    aberta, outra como ocorrência futura). Confirmado com dados reais da Neovero:
+    plano PM RONDA PERIÓDICA - FANCOILS HIDRÔNICOS, 14 itens todos com OS aberta —
+    sem este descarte a expansão matemática gerava 28 ocorrências (2 por item);
+    com o descarte, bate exatamente com as 14 que a Neovero reporta.
+    """
+    situacao = (os_vinculada or {}).get("situacao")
+    if situacao in _SITUACOES_EM_ABERTO and datas:
+        return datas[1:]
     return datas
