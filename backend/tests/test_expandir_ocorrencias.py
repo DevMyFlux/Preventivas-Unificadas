@@ -10,7 +10,7 @@ reintrodução da duplicação que causou a divergência original).
 """
 from datetime import date
 
-from core.planejamento import marcar_ocorrencia_ja_aberta, expandir_ocorrencias
+from core.planejamento import expandir_ocorrencias
 from units.grand_massif.routes import _expandir_ocorrencias as expandir_gm
 from units.brasilandia.routes import _expandir_ocorrencias as expandir_br
 
@@ -73,59 +73,3 @@ def test_unidade_desconhecida_cai_para_dias():
     d_ini, d_fim = date(2026, 9, 1), date(2026, 9, 30)
     datas = expandir_ocorrencias(dt_base, 10, "X", d_ini, d_fim)
     assert datas == [date(2026, 9, 1), date(2026, 9, 11), date(2026, 9, 21)]
-
-
-class TestMarcarOcorrenciaJaAberta:
-    """Cobre o bug encontrado com dados reais da Neovero: plano PM RONDA PERIÓDICA -
-    FANCOILS HIDRÔNICOS mostrava 28 no MyFlux contra 14 na Neovero. Os 14 itens já
-    tinham uma OS Aberta vinculada — a primeira ocorrência da expansão é justamente
-    essa OS que já existe.
-
-    Também cobre a regressão encontrada depois: a primeira versão desta função
-    DESCARTAVA a ocorrência da lista, o que fazia itens de "hoje" sumirem por
-    completo de consultas de um único dia (a única ocorrência da janela era
-    justamente a que tinha OS aberta). Agora só marca, nunca remove — e só marca
-    quando há uma ocorrência seguinte para "assumir" a vaga.
-
-    E cobre a terceira rodada de ajuste: comparando com o relatório da Neovero
-    mês a mês, marcar a ocorrência usando o estado de OS de HOJE piorava a
-    projeção de meses futuros (a OS aberta hoje não vai continuar aberta em
-    outubro) — por isso `janela_inclui_hoje=False` desliga a marcação inteira."""
-
-    def test_situacao_aberta_marca_primeira_ocorrencia(self):
-        datas = [date(2026, 8, 21), date(2026, 8, 28)]
-        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 1}) == [True, False]
-
-    def test_situacao_em_andamento_marca_primeira_ocorrencia(self):
-        datas = [date(2026, 8, 21), date(2026, 8, 28)]
-        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 2}) == [True, False]
-
-    def test_situacao_fechada_nao_marca_nada(self):
-        datas = [date(2026, 8, 21), date(2026, 8, 28)]
-        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 3}) == [False, False]
-
-    def test_sem_os_vinculada_nao_marca_nada(self):
-        datas = [date(2026, 8, 21), date(2026, 8, 28)]
-        assert marcar_ocorrencia_ja_aberta(datas, None) == [False, False]
-        assert marcar_ocorrencia_ja_aberta(datas, {}) == [False, False]
-
-    def test_janela_futura_nunca_marca_mesmo_com_os_aberta(self):
-        """Consulta de um mês inteiramente futuro (ex: setembro, consultado em
-        agosto) não deve usar o estado de OS de hoje para marcar nada."""
-        datas = [date(2026, 9, 4), date(2026, 9, 11)]
-        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 1}, janela_inclui_hoje=False) == [False, False]
-
-    def test_lista_vazia_nao_quebra(self):
-        assert marcar_ocorrencia_ja_aberta([], {"situacao": 1}) == []
-
-    def test_unica_ocorrencia_nunca_e_marcada_mesmo_com_os_aberta(self):
-        """O caso que causou a regressão: consulta de um único dia ("hoje"), o item
-        tem só essa ocorrência na janela e já tem OS aberta — precisa continuar
-        visível e contando, senão o item some da visão do dia."""
-        datas = [date(2026, 8, 21)]
-        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 1}) == [False]
-        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 2}) == [False]
-
-    def test_tres_ocorrencias_so_marca_a_primeira(self):
-        datas = [date(2026, 8, 21), date(2026, 8, 28), date(2026, 9, 4)]
-        assert marcar_ocorrencia_ja_aberta(datas, {"situacao": 1}) == [True, False, False]

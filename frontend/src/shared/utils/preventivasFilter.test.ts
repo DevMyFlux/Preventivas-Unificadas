@@ -7,7 +7,6 @@ function preventiva(overrides: Partial<Preventiva>): Preventiva {
     data_prev: '15/09/2026',
     dia_par: 'Ímpar',
     atrasada: false,
-    ja_com_os: false,
     plano: 'Plano X',
     tipo: 'Preventiva',
     oficina: 'Elétrica',

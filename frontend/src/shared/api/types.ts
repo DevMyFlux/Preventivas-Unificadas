@@ -4,7 +4,6 @@ export interface Preventiva {
   data_prev: string;
   dia_par: string;
   atrasada: boolean;
-  ja_com_os: boolean;
   plano: string;
   tipo: string;
   oficina: string;
@@ -22,7 +21,6 @@ export interface PreventivaResponse {
   total: number;
   com_recomendacao: number;
   em_atraso: number;
-  ja_com_os: number;
   itens: Preventiva[];
 }
 

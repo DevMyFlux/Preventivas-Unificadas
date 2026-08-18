@@ -15,7 +15,7 @@ from core.neovero_client import (
     get_headers, paginar, buscar_itens_varios_planos, filtros_planos, SIT_MAP, os_vinculada_visivel,
 )
 from core.exporters import gerar_excel_preventivas, gerar_excel_recomendacoes
-from core.planejamento import detectar_paridade, marcar_ocorrencia_ja_aberta, expandir_ocorrencias as _expandir_ocorrencias
+from core.planejamento import detectar_paridade, expandir_ocorrencias as _expandir_ocorrencias
 from units.grand_massif import config as CFG
 from units.grand_massif.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
 from units.grand_massif.motor import indicar_responsavel, extrair_ativo
@@ -383,7 +383,6 @@ def api_preventivas():
         d_ini, d_fim = _parse_dates()
         if not d_ini or not d_fim:
             return jsonify({"erro": "Informe data_ini e data_fim."}), 400
-        janela_inclui_hoje = d_ini <= date.today() <= d_fim
 
         ck = _ck(f"prev_{d_ini}_{d_fim}")
         cached = _cache_module.get(ck)
@@ -392,7 +391,6 @@ def api_preventivas():
                 "total": len(cached),
                 "com_recomendacao": sum(1 for p in cached if p["recomendado"]),
                 "em_atraso": sum(1 for p in cached if p.get("atrasada")),
-                "ja_com_os": sum(1 for p in cached if p.get("ja_com_os")),
                 "itens": cached,
             })
 
@@ -439,9 +437,8 @@ def api_preventivas():
                 equip_nome = (equip.get("nome") or "").strip()
 
                 datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim, paridade)
-                ja_com_os_flags = marcar_ocorrencia_ja_aberta(datas, item.get("ordemServico"), janela_inclui_hoje)
 
-                for dt_prev, ja_com_os in zip(datas, ja_com_os_flags):
+                for dt_prev in datas:
                     recomend, cargo, escala, score = (None, None, None, -999)
                     if colab is not None:
                         principal, _, _ = indicar_responsavel(colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev)
@@ -456,7 +453,6 @@ def api_preventivas():
                         "data_prev": dt_prev.strftime("%d/%m/%Y"),
                         "dia_par": "Par" if dt_prev.day % 2 == 0 else "Ímpar",
                         "atrasada": dt_prev < date.today(),
-                        "ja_com_os": ja_com_os,
                         "plano": p.get("descricao", ""),
                         "tipo": tipo,
                         "oficina": oficina,
@@ -477,7 +473,6 @@ def api_preventivas():
             "total": len(preventivas),
             "com_recomendacao": sum(1 for p in preventivas if p["recomendado"]),
             "em_atraso": sum(1 for p in preventivas if p["atrasada"]),
-            "ja_com_os": sum(1 for p in preventivas if p["ja_com_os"]),
             "itens": preventivas,
         })
     except Exception as e:
