@@ -32,6 +32,8 @@ export default function ColaboradoresPanel({
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [selectedNome, setSelectedNome] = useState<string | null>(null);
+  const [statusFiltro, setStatusFiltro] = useState<'' | 'Ativo' | 'Desligado'>('');
+  const [bloqueadoFiltro, setBloqueadoFiltro] = useState<'' | 'sim' | 'nao'>('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,6 +69,10 @@ export default function ColaboradoresPanel({
 
   const filtered: Colaborador[] = data
     ? data.itens.filter((c) => {
+        if (statusFiltro && c.status !== statusFiltro) return false;
+        if (bloqueadoFiltro === 'sim' && !c.bloqueado) return false;
+        if (bloqueadoFiltro === 'nao' && c.bloqueado) return false;
+
         const q = search.trim().toLowerCase();
         if (!q) return true;
         return (
@@ -85,6 +91,24 @@ export default function ColaboradoresPanel({
         <button className="btn-primary" onClick={load} disabled={loading}>
           {loading ? 'Carregando…' : 'Carregar'}
         </button>
+        <select
+          value={statusFiltro}
+          onChange={(e) => setStatusFiltro(e.target.value as '' | 'Ativo' | 'Desligado')}
+          aria-label="Filtrar por status"
+        >
+          <option value="">Status: todos</option>
+          <option value="Ativo">Ativo</option>
+          <option value="Desligado">Desligado</option>
+        </select>
+        <select
+          value={bloqueadoFiltro}
+          onChange={(e) => setBloqueadoFiltro(e.target.value as '' | 'sim' | 'nao')}
+          aria-label="Filtrar por bloqueado"
+        >
+          <option value="">Bloqueado: todos</option>
+          <option value="sim">Sim</option>
+          <option value="nao">Não</option>
+        </select>
         <input
           type="text"
           className="search"

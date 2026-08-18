@@ -1,11 +1,16 @@
 import type { Preventiva } from '../api/types';
 
+export type FiltroStatusOS = '' | 'Aberta' | 'Em Andamento' | 'sem_os';
+export type FiltroRecomendacao = '' | 'com' | 'sem';
+
 export function filterPreventivas(
   items: Preventiva[],
   responsavel: string,
   dataIni: string,
   dataFim: string,
   search: string,
+  statusOS: FiltroStatusOS = '',
+  recomendacao: FiltroRecomendacao = '',
 ): Preventiva[] {
   const respTerm = responsavel.trim().toLowerCase();
   const searchTerm = search.trim().toLowerCase();
@@ -19,6 +24,18 @@ export function filterPreventivas(
     const datePrev = parseDateToISO(item.data_prev);
     if (dataIni && datePrev < dataIni) return false;
     if (dataFim && datePrev > dataFim) return false;
+
+    if (statusOS) {
+      const semOS = item.os_situacao === '—';
+      if (statusOS === 'sem_os') {
+        if (!semOS) return false;
+      } else if (item.os_situacao !== statusOS) {
+        return false;
+      }
+    }
+
+    if (recomendacao === 'com' && !item.recomendado) return false;
+    if (recomendacao === 'sem' && item.recomendado) return false;
 
     if (searchTerm) {
       const haystack = [item.plano, item.tipo, item.oficina, item.equipamento, item.setor, item.os_vinculada]

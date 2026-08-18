@@ -10,10 +10,14 @@ interface PlanosPanelProps {
   autoLoad?: boolean;
 }
 
-function filterItems(items: Plano[], search: string): Plano[] {
+export type FiltroAtivo = '' | 'sim' | 'nao';
+
+function filterItems(items: Plano[], search: string, ativo: FiltroAtivo = ''): Plano[] {
   const term = search.trim().toLowerCase();
-  if (!term) return items;
   return items.filter((item) => {
+    if (ativo === 'sim' && !item.ativo) return false;
+    if (ativo === 'nao' && item.ativo) return false;
+    if (!term) return true;
     const haystack = [item.descricao, item.tipo, item.periodicidade, item.oficina].join(' ').toLowerCase();
     return haystack.includes(term);
   });
@@ -24,6 +28,7 @@ export default function PlanosPanel({ apiClient, onCountChange, autoLoad }: Plan
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [ativoFiltro, setAtivoFiltro] = useState<FiltroAtivo>('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,7 +49,7 @@ export default function PlanosPanel({ apiClient, onCountChange, autoLoad }: Plan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filtered: Plano[] = data ? filterItems(data.itens, search) : [];
+  const filtered: Plano[] = data ? filterItems(data.itens, search, ativoFiltro) : [];
 
   return (
     <div>
@@ -52,6 +57,15 @@ export default function PlanosPanel({ apiClient, onCountChange, autoLoad }: Plan
         <button className="btn-primary" onClick={load} disabled={loading}>
           {loading ? 'Carregando…' : 'Carregar Planos'}
         </button>
+        <select
+          value={ativoFiltro}
+          onChange={(e) => setAtivoFiltro(e.target.value as FiltroAtivo)}
+          aria-label="Filtrar por ativo"
+        >
+          <option value="">Ativo: todos</option>
+          <option value="sim">Sim</option>
+          <option value="nao">Não</option>
+        </select>
         <input
           type="text"
           className="search"

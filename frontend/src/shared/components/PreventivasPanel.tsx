@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { buildUnitClient } from '../api/client';
 import type { Preventiva, PreventivaResponse } from '../api/types';
-import { filterPreventivas } from '../utils/preventivasFilter';
+import { filterPreventivas, type FiltroStatusOS, type FiltroRecomendacao } from '../utils/preventivasFilter';
 
 type UnitApiClient = ReturnType<typeof buildUnitClient>;
 
@@ -22,6 +22,8 @@ export default function PreventivasPanel({ apiClient, dataIni, dataFim, onCountC
   const [localDataIni, setLocalDataIni] = useState('');
   const [localDataFim, setLocalDataFim] = useState('');
   const [search, setSearch] = useState('');
+  const [statusOS, setStatusOS] = useState<FiltroStatusOS>('');
+  const [recomendacao, setRecomendacao] = useState<FiltroRecomendacao>('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,6 +44,8 @@ export default function PreventivasPanel({ apiClient, dataIni, dataFim, onCountC
     setLocalDataIni('');
     setLocalDataFim('');
     setSearch('');
+    setStatusOS('');
+    setRecomendacao('');
     setData(null);
   };
 
@@ -70,7 +74,7 @@ export default function PreventivasPanel({ apiClient, dataIni, dataFim, onCountC
   };
 
   const filtered: Preventiva[] = data
-    ? filterPreventivas(data.itens, responsavel, localDataIni, localDataFim, search)
+    ? filterPreventivas(data.itens, responsavel, localDataIni, localDataFim, search, statusOS, recomendacao)
     : [];
 
   const comRecomendacao = filtered.filter((p) => p.recomendado).length;
@@ -122,6 +126,25 @@ export default function PreventivasPanel({ apiClient, dataIni, dataFim, onCountC
             style={{ marginLeft: 6 }}
           />
         </label>
+        <select
+          value={statusOS}
+          onChange={(e) => setStatusOS(e.target.value as FiltroStatusOS)}
+          aria-label="Filtrar por status da OS"
+        >
+          <option value="">Status OS: todos</option>
+          <option value="Aberta">Aberta</option>
+          <option value="Em Andamento">Em Andamento</option>
+          <option value="sem_os">Sem OS vinculada</option>
+        </select>
+        <select
+          value={recomendacao}
+          onChange={(e) => setRecomendacao(e.target.value as FiltroRecomendacao)}
+          aria-label="Filtrar por recomendação"
+        >
+          <option value="">Recomendação: todas</option>
+          <option value="com">Com recomendação</option>
+          <option value="sem">Sem candidato</option>
+        </select>
         <button className="btn-neutral" onClick={clearFilters}>Limpar filtros</button>
         <input
           type="text"

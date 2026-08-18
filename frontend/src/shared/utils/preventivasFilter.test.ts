@@ -66,4 +66,34 @@ describe('filterPreventivas', () => {
     const rVazio = filterPreventivas(itens, 'ana', '', '', 'hidráulica');
     expect(rVazio).toHaveLength(0);
   });
+
+  it('filtra por status OS específico', () => {
+    const comStatus: Preventiva[] = [
+      preventiva({ os_situacao: 'Aberta', plano: 'A' }),
+      preventiva({ os_situacao: 'Em Andamento', plano: 'B' }),
+      preventiva({ os_situacao: '—', plano: 'C' }),
+    ];
+    const r = filterPreventivas(comStatus, '', '', '', '', 'Aberta');
+    expect(r).toHaveLength(1);
+    expect(r[0].plano).toBe('A');
+  });
+
+  it('filtro "sem_os" pega apenas itens sem OS vinculada visível', () => {
+    const comStatus: Preventiva[] = [
+      preventiva({ os_situacao: 'Aberta', plano: 'A' }),
+      preventiva({ os_situacao: '—', plano: 'C' }),
+    ];
+    const r = filterPreventivas(comStatus, '', '', '', '', 'sem_os');
+    expect(r).toHaveLength(1);
+    expect(r[0].plano).toBe('C');
+  });
+
+  it('filtra por recomendação com/sem candidato', () => {
+    const comRec = filterPreventivas(itens, '', '', '', '', '', 'com');
+    expect(comRec.every((i) => i.recomendado)).toBe(true);
+
+    const semRec = filterPreventivas(itens, '', '', '', '', '', 'sem');
+    expect(semRec).toHaveLength(1);
+    expect(semRec[0].plano).toBe('Sem candidato');
+  });
 });
