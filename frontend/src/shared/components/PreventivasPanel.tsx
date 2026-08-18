@@ -77,7 +77,7 @@ export default function PreventivasPanel({ apiClient, dataIni, dataFim, onCountC
     ? filterPreventivas(data.itens, responsavel, localDataIni, localDataFim, search, statusOS, recomendacao)
     : [];
 
-  const previstas = filtered.filter((p) => !p.atrasada);
+  const previstas = filtered.filter((p) => !p.atrasada && !p.ja_com_os);
   const comRecomendacao = filtered.filter((p) => p.recomendado).length;
   const emAtraso = filtered.filter((p) => p.atrasada).length;
 

@@ -115,19 +115,23 @@ def expandir_ocorrencias(
     return datas
 
 
-def descartar_ocorrencia_em_aberto(datas: list, os_vinculada: dict | None) -> list:
-    """Remove a primeira ocorrência da lista quando o item já tem uma OS Aberta ou
-    Em Andamento vinculada.
+def marcar_ocorrencia_ja_aberta(datas: list, os_vinculada: dict | None) -> list:
+    """Retorna uma lista de booleanos paralela a `datas`: True na ocorrência que já
+    virou a OS Aberta/Em Andamento vinculada ao item — ela não é mais um "novo"
+    trabalho previsto, já existe como ordem de serviço real.
 
-    Essa primeira ocorrência é justamente a que já virou a OS em aberto — ela já
-    existe como ordem de serviço real, não é mais "planejada". Contá-la de novo na
-    lista de preventivas previstas duplica a mesma manutenção (uma vez como OS
-    aberta, outra como ocorrência futura). Confirmado com dados reais da Neovero:
-    plano PM RONDA PERIÓDICA - FANCOILS HIDRÔNICOS, 14 itens todos com OS aberta —
-    sem este descarte a expansão matemática gerava 28 ocorrências (2 por item);
-    com o descarte, bate exatamente com as 14 que a Neovero reporta.
-    """
+    NUNCA remove itens de `datas` — apenas sinaliza. Uma versão anterior desta
+    função descartava essa ocorrência da lista, o que corrigia a contagem total
+    (confirmado com dados reais: plano PM RONDA PERIÓDICA - FANCOILS HIDRÔNICOS,
+    28 ocorrências viravam 14, batendo com a Neovero), mas quebrava consultas de
+    janela estreita — ex: filtrar só "hoje" e o item do dia sumir inteiramente da
+    lista, porque aquela era a única ocorrência da janela. Por isso só marca (nunca
+    descarta) e só quando existe uma ocorrência seguinte na mesma janela — a
+    primeira e única ocorrência de uma consulta nunca é marcada, mesmo já tendo OS
+    aberta, para o item nunca desaparecer de uma visão do dia."""
+    if len(datas) <= 1:
+        return [False] * len(datas)
     situacao = (os_vinculada or {}).get("situacao")
-    if situacao in _SITUACOES_EM_ABERTO and datas:
-        return datas[1:]
-    return datas
+    if situacao not in _SITUACOES_EM_ABERTO:
+        return [False] * len(datas)
+    return [True] + [False] * (len(datas) - 1)
