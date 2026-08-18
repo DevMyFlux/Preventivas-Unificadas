@@ -25,6 +25,23 @@ HEADERS_BASE = {
 
 SIT_MAP = {1: "Aberta", 2: "Em Andamento", 3: "Fechada", 4: "Cancelada"}
 
+# Situações que representam uma OS realmente em curso — o Neovero não cria a ordem de
+# serviço com antecedência pra uma preventiva projetada no futuro, então o que vem
+# "vinculado" a um item costuma ser a última OS já fechada de um ciclo anterior. Exibir
+# isso pra qualquer ocorrência futura confundia o usuário (parecia ser a OS daquela
+# data específica). Só mostra a OS vinculada quando ela está de fato aberta/em
+# andamento; caso contrário, o campo fica vazio.
+_SITUACOES_ATIVAS = frozenset({1, 2})
+
+
+def os_vinculada_visivel(os_v: dict) -> tuple[str, str]:
+    """Retorna (número, situação) da OS vinculada a um item, só quando ela está
+    realmente aberta ou em andamento. Sem OS ativa, retorna ("—", "—")."""
+    situacao = (os_v or {}).get("situacao")
+    if situacao not in _SITUACOES_ATIVAS:
+        return "—", "—"
+    return os_v.get("numero", "") or "—", SIT_MAP.get(situacao, "—")
+
 
 def obter_token() -> str:
     if _token_cache["token"] and time.time() < _token_cache["expires"]:

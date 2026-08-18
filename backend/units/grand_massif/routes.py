@@ -12,7 +12,7 @@ from core import cache as _cache_module
 from core import colaboradores_overlay
 from core.motor_base import HABILIDADES, HABILIDADES_POR_ID
 from core.neovero_client import (
-    get_headers, paginar, buscar_itens_varios_planos, filtros_planos, SIT_MAP,
+    get_headers, paginar, buscar_itens_varios_planos, filtros_planos, SIT_MAP, os_vinculada_visivel,
 )
 from core.exporters import gerar_excel_preventivas, gerar_excel_recomendacoes
 from core.planejamento import detectar_paridade, expandir_ocorrencias as _expandir_ocorrencias
@@ -428,7 +428,7 @@ def api_preventivas():
 
                 equip = item.get("equipamento") or {}
                 setor = (item.get("setor") or equip.get("setorAtual") or {}).get("nome", "") or ""
-                os_v = item.get("ordemServico") or {}
+                os_numero, os_situacao = os_vinculada_visivel(item.get("ordemServico"))
                 equip_nome = (equip.get("nome") or "").strip()
 
                 datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim, paridade)
@@ -452,8 +452,8 @@ def api_preventivas():
                         "oficina": oficina,
                         "equipamento": equip_nome or "—",
                         "setor": setor or "—",
-                        "os_vinculada": os_v.get("numero", "") or "—",
-                        "os_situacao": SIT_MAP.get(os_v.get("situacao"), "—") if os_v.get("situacao") else "—",
+                        "os_vinculada": os_numero,
+                        "os_situacao": os_situacao,
                         "recomendado": recomend,
                         "cargo": cargo or "",
                         "escala": escala or "",
