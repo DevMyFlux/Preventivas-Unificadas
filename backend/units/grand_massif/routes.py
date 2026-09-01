@@ -548,6 +548,22 @@ def api_colaborador_status(nome):
         return jsonify({"erro": str(e)}), 500
 
 
+@bp.route("/colaborador/<path:nome>/bloqueio", methods=["PATCH"])
+def api_colaborador_bloqueio(nome):
+    try:
+        body = request.get_json(silent=True) or {}
+        bloqueado = body.get("bloqueado")
+        if not isinstance(bloqueado, bool):
+            return jsonify({"erro": "bloqueado deve ser true ou false"}), 400
+        aviso = body.get("aviso")
+        colaboradores_overlay.set_bloqueado(CFG.DATA_DIR, nome, bloqueado, aviso)
+        invalidar_cache_colaboradores()
+        return jsonify({"funcionario": nome, "bloqueado": bloqueado, "aviso": aviso if bloqueado else None})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
 @bp.route("/colaborador/<path:nome>/habilidades", methods=["POST"])
 def api_colaborador_add_habilidade(nome):
     try:

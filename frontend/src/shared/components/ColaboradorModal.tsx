@@ -74,6 +74,27 @@ export default function ColaboradorModal({ apiClient, nome, onClose, dataIni, da
     }
   };
 
+  const toggleBloqueio = async () => {
+    if (!data) return;
+    const desbloqueando = data.bloqueado;
+    let aviso: string | undefined;
+    if (!desbloqueando) {
+      const digitado = window.prompt('Motivo do bloqueio (aparece pra quem for consultar este colaborador):', '');
+      if (digitado === null) return; // cancelou
+      aviso = digitado.trim() || 'Bloqueado manualmente — motivo não informado.';
+    }
+    setSalvando(true);
+    try {
+      const r = await apiClient.atualizarBloqueioColaborador(nome, !desbloqueando, aviso);
+      setData({ ...data, bloqueado: r.bloqueado, aviso: r.aviso });
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao alterar bloqueio');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
   const adicionarHabilidade = async () => {
     if (!data || !novaHabilidade) return;
     setSalvando(true);
@@ -188,6 +209,23 @@ export default function ColaboradorModal({ apiClient, nome, onClose, dataIni, da
                 }}
               >
                 {data.status === 'Ativo' ? 'Marcar Desligado' : 'Reativar'}
+              </button>
+            )}
+            {data && (
+              <button
+                onClick={toggleBloqueio}
+                disabled={salvando}
+                title={data.bloqueado ? 'Desbloquear colaborador (volta a poder ser recomendado)' : 'Bloquear colaborador manualmente'}
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  padding: '4px 10px',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                {data.bloqueado ? 'Desbloquear' : 'Bloquear'}
               </button>
             )}
             <button

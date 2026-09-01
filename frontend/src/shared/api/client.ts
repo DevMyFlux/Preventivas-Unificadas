@@ -60,6 +60,16 @@ export function buildUnitClient(prefix: UnitApiPrefix) {
       return res.json() as Promise<{ funcionario: string; status: StatusColaborador }>
     },
 
+    atualizarBloqueioColaborador: async (nome: string, bloqueado: boolean, aviso?: string) => {
+      const res = await fetch(`${API_BASE}${prefix}/colaborador/${encodeURIComponent(nome)}/bloqueio`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bloqueado, aviso: aviso ?? null }),
+      })
+      if (!res.ok) throw new Error(`Erro ${res.status}`)
+      return res.json() as Promise<{ funcionario: string; bloqueado: boolean; aviso: string | null }>
+    },
+
     adicionarHabilidade: async (nome: string, habilidadeId: string) => {
       const res = await fetch(`${API_BASE}${prefix}/colaborador/${encodeURIComponent(nome)}/habilidades`, {
         method: 'POST',
