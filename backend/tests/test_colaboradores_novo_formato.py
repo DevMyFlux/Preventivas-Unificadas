@@ -91,7 +91,11 @@ def test_hetrin_codigo_t_nao_conta_como_presenca_no_formato_novo():
     assert "T" in gm.STATUS_PRESENTES  # o antigo continua tratando T como presença
 
 
-# ── HMB (formato rico/por-grupo) ─────────────────────────────────────────────
+# ── HMB (formato calendário "ESCALA DE FOLGA", a partir de setembro/2026) ──────
+# Mesmo provedor/formato novo da HETRIN (Nome/Iniciais/Função/Conselho/Horário +
+# dias 1-30 + Observações, separadores DIURNO/NOTURNO) — sem coluna Plantão/regime
+# própria, então regime vem sempre "Fixo" aqui (a disponibilidade real é decidida
+# pelo calendário dia a dia, não por paridade).
 
 @pytestmark_hmb
 def test_hmb_exclui_vagas_e_contratacoes_pendentes(colab_hmb):
@@ -101,26 +105,42 @@ def test_hmb_exclui_vagas_e_contratacoes_pendentes(colab_hmb):
 
 
 @pytestmark_hmb
-def test_hmb_paridade_extraida_do_texto_livre(colab_hmb):
+def test_hmb_turno_via_separador_diurno_noturno(colab_hmb):
     iranildo = colab_hmb[colab_hmb["funcionario"] == "Iranildo Silva dos Santos"]
     assert not iranildo.empty
-    assert iranildo.iloc[0]["regime"] == "Par"
     assert iranildo.iloc[0]["turno"] == "Diurno"
+    assert iranildo.iloc[0]["regime"] == "Fixo"  # formato calendário não extrai par/ímpar de texto livre
+
+    osmar = colab_hmb[colab_hmb["funcionario"] == "Osmar Silva"]
+    assert not osmar.empty
+    assert osmar.iloc[0]["turno"] == "Noturno"
 
 
 @pytestmark_hmb
 def test_hmb_disponibilidade_dia_real_bate_com_planilha(colab_hmb):
     iranildo = colab_hmb[colab_hmb["funcionario"] == "Iranildo Silva dos Santos"].iloc[0]
-    assert br.esta_disponivel(iranildo, date(2026, 8, 16)) is True   # par, P na planilha
-    assert br.esta_disponivel(iranildo, date(2026, 8, 17)) is False  # ímpar, ausente
+    assert br.esta_disponivel(iranildo, date(2026, 9, 1)) is True   # D na planilha
+    assert br.esta_disponivel(iranildo, date(2026, 9, 2)) is False  # F na planilha
 
 
 @pytestmark_hmb
-def test_hmb_dia_fora_da_quinzena_e_seguro_por_padrao(colab_hmb):
-    """O arquivo só cobre 16-31/08 — dias 1-15 não têm dado nenhum. Preferir
+def test_hmb_dia_fora_do_mes_e_seguro_por_padrao(colab_hmb):
+    """O arquivo só cobre os dias 1-30 (setembro não tem dia 31). Preferir
     'indisponível' a adivinhar presença é o padrão seguro."""
     qualquer = colab_hmb.iloc[0]
-    assert br.esta_disponivel(qualquer, date(2026, 8, 5)) is False
+    assert br.esta_disponivel(qualquer, date(2026, 8, 31)) is False
+
+
+@pytestmark_hmb
+def test_hmb_condicionado_no_texto_livre_bloqueia_via_overlay(colab_hmb):
+    """Diferente da HETRIN rico/12x36 (que tem coluna Status própria), este formato
+    não tem — o bloqueio de quem tem "condicionado" na Observação da planilha
+    precisa vir do overlay (core/colaboradores_overlay.py), não do parser."""
+    bloqueados = colab_hmb[colab_hmb["bloqueado"]]
+    assert len(bloqueados) >= 1
+    for _, row in bloqueados.iterrows():
+        assert row["aviso"] is not None
+        assert br.esta_disponivel(row, date(2026, 9, 2)) is False
 
 
 # ── Isolamento entre unidades ────────────────────────────────────────────────
