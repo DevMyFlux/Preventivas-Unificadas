@@ -171,6 +171,48 @@ def test_hetrin_escolhe_formato_rico_mesmo_com_mtime_do_antigo_mais_novo():
         gm.invalidar_cache()
 
 
+# ── HETRIN (formato calendário "ESCALA DE FOLGA", a partir de setembro/2026) ────
+# Provedor novo (Energia Verde Norte) — sem coluna Equipe/Status, só Nome/Iniciais/
+# Função/Conselho/Horário + dias 1-30 + Observações, com separadores DIURNO/NOTURNO
+# na primeira coluna. Achado ao migrar a planilha real: linhas "POSIÇÃO NÃO COBERTA"
+# (vaga em aberto, sem pessoa real) não tinham nenhuma proteção nesse parser —
+# entravam como um "colaborador" fantasma, igual ao bug de legenda vazando que já
+# tínhamos corrigido nos outros formatos.
+
+def _df_calendario_escala_de_folga():
+    linhas = [
+        ["Nome", "Iniciais", "Função", "Conselho", "Horário"] + list(range(1, 31)) + ["Observações"],
+        ["DIURNO"] + [None] * 35,
+        ["Fulano de Tal", "FT", "Eletricista", "", "07:00–19:00"] + (["D", "F"] * 15) + [""],
+        ["POSIÇÃO NÃO COBERTA", "", "Técnico de Climatização", "", "Conforme"] + [""] * 30 + ["Vaga em aberto."],
+        ["NOTURNO"] + [None] * 35,
+        ["Vaga - Folguista Noturno", "", "Aux. Eletricista", "", "19:00–07:00"] + [""] * 30 + ["Vaga."],
+        ["Ciclana da Silva", "CS", "Aux. Eletricista", "", "19:00–07:00"] + (["N", "F"] * 15) + [""],
+    ]
+    return pd.DataFrame(linhas)
+
+
+def test_hetrin_calendario_exclui_posicao_nao_coberta():
+    df_raw = _df_calendario_escala_de_folga()
+    resultado = gm._parse_calendario_gm(df_raw)
+    assert resultado is not None
+    nomes = resultado["funcionario"].tolist()
+    assert "Fulano de Tal" in nomes
+    assert "Ciclana da Silva" in nomes
+    assert not any("posi" in n.lower() and "coberta" in n.lower() for n in nomes)
+    assert not any(n.lower().startswith("vaga") for n in nomes)
+    assert len(resultado) == 2
+
+
+def test_hetrin_calendario_turno_via_separador_diurno_noturno():
+    df_raw = _df_calendario_escala_de_folga()
+    resultado = gm._parse_calendario_gm(df_raw)
+    fulano = resultado[resultado["funcionario"] == "Fulano de Tal"].iloc[0]
+    ciclana = resultado[resultado["funcionario"] == "Ciclana da Silva"].iloc[0]
+    assert fulano["turno"] == "Diurno"
+    assert ciclana["turno"] == "Noturno"
+
+
 @pytest.mark.skipif(not _TEM_DOIS_ARQUIVOS_HMB, reason="precisa da planilha antiga e da nova lado a lado")
 def test_hmb_escolhe_formato_rico_mesmo_com_mtime_do_antigo_mais_novo():
     caminhos = [

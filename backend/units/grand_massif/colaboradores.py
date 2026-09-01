@@ -248,6 +248,7 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
     _PLANTAO = {"plantão", "plantao", "plant", "planta"}
     _HORARIO = {"horario", "horário", "hora", "carga horaria"}
     _SEPARADORES = {"DIURNO": "Diurno", "NOTURNO": "Noturno"}
+    _MARCADORES_VAGA = ("vaga", "posicao nao coberta")
 
     col_nome, col_cargo, col_plantao, col_horario = 2, 4, None, 6
     dia_col: dict[int, int] = {}
@@ -293,6 +294,8 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
         nome = cell_nome.strip()
         if nome.upper() in ("NAN", ""):
             continue
+        if any(_ascii_lower(nome).startswith(m) for m in _MARCADORES_VAGA):
+            continue  # vaga/posição em aberto (ex: "POSIÇÃO NÃO COBERTA") — não é um colaborador real
 
         cargo_cell = df_raw.iloc[i, col_cargo]
         cargo = str(cargo_cell or "").strip()
