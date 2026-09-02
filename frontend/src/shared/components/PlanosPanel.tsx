@@ -29,6 +29,7 @@ export default function PlanosPanel({ apiClient, onCountChange, autoLoad }: Plan
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [ativoFiltro, setAtivoFiltro] = useState<FiltroAtivo>('');
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,6 +45,30 @@ export default function PlanosPanel({ apiClient, onCountChange, autoLoad }: Plan
     }
   }, [apiClient, onCountChange]);
 
+  const handleExport = async () => {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const res = await apiClient.exportarPlanos(filtered);
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      a.download = match ? match[1] : 'planos.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao exportar');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   useEffect(() => {
     if (autoLoad) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,6 +81,9 @@ export default function PlanosPanel({ apiClient, onCountChange, autoLoad }: Plan
       <div className="toolbar">
         <button className="btn-primary" onClick={load} disabled={loading}>
           {loading ? 'Carregando…' : 'Carregar Planos'}
+        </button>
+        <button className="btn-success" onClick={handleExport} disabled={!data || exporting}>
+          {exporting ? 'Exportando…' : 'Exportar Excel'}
         </button>
         <select
           value={ativoFiltro}

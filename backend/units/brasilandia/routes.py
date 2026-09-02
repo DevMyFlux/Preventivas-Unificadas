@@ -13,7 +13,7 @@ from core.motor_base import HABILIDADES, HABILIDADES_POR_ID
 from core.neovero_client import (
     get_headers, paginar, buscar_itens_varios_planos, filtros_planos, os_vinculada_visivel,
 )
-from core.exporters import gerar_excel_preventivas
+from core.exporters import gerar_excel_preventivas, gerar_excel_planos
 from core.planejamento import detectar_paridade, detectar_turno, expandir_ocorrencias as _expandir_ocorrencias
 from units.brasilandia import config as CFG
 from units.brasilandia.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
@@ -321,6 +321,23 @@ def api_exportar_preventivas():
         buf = gerar_excel_preventivas(prev, d_ini, d_fim, CFG.NOME)
         sufixo = f"{d_ini.strftime('%Y%m%d') if d_ini else 'inicio'}_{d_fim.strftime('%Y%m%d') if d_fim else 'fim'}"
         return send_file(buf, as_attachment=True, download_name=f"br_preventivas_{sufixo}.xlsx",
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/exportar_planos", methods=["POST"])
+def api_exportar_planos():
+    try:
+        body = request.get_json()
+        if not body:
+            return jsonify({"erro": "Nenhum dado para exportar"}), 400
+        planos = body.get("itens", body) if isinstance(body, dict) else body
+        buf = gerar_excel_planos(planos, CFG.NOME)
+        from datetime import datetime as dt
+        sufixo = dt.now().strftime("%Y%m%d_%H%M%S")
+        return send_file(buf, as_attachment=True, download_name=f"br_planos_{sufixo}.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     except Exception as e:
         import traceback; traceback.print_exc()

@@ -104,6 +104,16 @@ export function buildUnitClient(prefix: UnitApiPrefix) {
       return res
     },
 
+    exportarPlanos: async (itens: unknown[]) => {
+      const res = await fetch(`${API_BASE}${prefix}/exportar_planos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens }),
+      })
+      if (!res.ok) throw new Error(`Erro ${res.status}`)
+      return res
+    },
+
     limparCache: () =>
       fetch(`${API_BASE}${prefix}/limpar_cache`, { method: 'POST' }),
   }

@@ -88,6 +88,44 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
     return buf
 
 
+def gerar_excel_planos(planos: list, nome_unidade: str = "") -> io.BytesIO:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Planos de Manutenção"
+
+    cols = [
+        ("ID", 10), ("Descrição", 45), ("Tipo", 30), ("Periodicidade", 16),
+        ("Oficina", 22), ("Procedimento", 45), ("Ativo", 12),
+    ]
+
+    unidade_prefix = f"{nome_unidade} — " if nome_unidade else ""
+    _titulo_row(ws, cols, f"{unidade_prefix}Planos de Manutenção — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    _header_row(ws, cols)
+
+    for i, r in enumerate(planos, 3):
+        ativo = bool(r.get("ativo"))
+        fill = PatternFill("solid", fgColor="FFFFFF" if ativo else "F5F5F5")
+        for col, val in enumerate([
+            r.get("id", ""),
+            r.get("descricao", ""),
+            r.get("tipo", ""),
+            r.get("periodicidade", ""),
+            r.get("oficina", ""),
+            r.get("procedimento", ""),
+            "Sim" if ativo else "Não",
+        ], 1):
+            c = ws.cell(row=i, column=col, value=val)
+            c.fill = fill
+            c.alignment = Alignment(vertical="center", wrap_text=True)
+            c.border = _BORDA
+        ws.row_dimensions[i].height = 18
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
 def gerar_excel_recomendacoes(resultados: list, nome_unidade: str = "") -> io.BytesIO:
     wb = Workbook()
     ws = wb.active
