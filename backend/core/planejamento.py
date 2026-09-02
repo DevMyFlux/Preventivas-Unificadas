@@ -13,6 +13,8 @@ from dateutil.relativedelta import relativedelta
 
 _RE_IMPAR = re.compile(r"\bIMPAR\b")
 _RE_PAR = re.compile(r"\bPAR\b")
+_RE_NOTURNO = re.compile(r"\bNOTURNO\b")
+_RE_DIURNO = re.compile(r"\bDIURNO\b")
 
 
 def _remover_acentos(texto: str) -> str:
@@ -35,6 +37,27 @@ def detectar_paridade(nome_plano: str) -> str | None:
         return "IMPAR"
     if _RE_PAR.search(normalizado):
         return "PAR"
+    return None
+
+
+def detectar_turno(nome_plano: str) -> str | None:
+    """Detecta se um plano é explicitamente Diurno ou Noturno pelo nome/descrição —
+    mesma técnica de detectar_paridade() (word-boundary, acento/caixa normalizados).
+
+    Usado pra escolher uma hora de referência coerente ao recomendar responsável
+    por uma preventiva ainda não realizada (sem OS real, sem `dataHoraAbertura` pra
+    ler a hora de verdade). Sem isso, toda preventiva futura era avaliada com a
+    hora-padrão (8h, diurno) mesmo quando o próprio nome do plano diz "NOTURNO" —
+    confirmado com dado real: plano "COLETA DIÁRIA MEDIDOR - NOTURNO - N2" recomendou
+    um eletricista só diurno, porque o motor nunca dava o bônus de turno certo pra
+    ninguém noturno (a hora fixa de 8h nunca cai dentro da janela noturna)."""
+    if not nome_plano:
+        return None
+    normalizado = _remover_acentos(nome_plano).upper()
+    if _RE_NOTURNO.search(normalizado):
+        return "Noturno"
+    if _RE_DIURNO.search(normalizado):
+        return "Diurno"
     return None
 
 

@@ -86,6 +86,18 @@ def is_critico(setor: str) -> bool:
     return any(k in s for k in SETORES_CRITICOS)
 
 
+def _turno_compativel(turno_collab: str, hora_os: int) -> bool:
+    """Mesma janela horária usada pra dar o bônus de turno em calcular_score() —
+    extraída pra função própria pra poder ser reusada como filtro de elegibilidade em
+    indicar_responsavel(), não só como bônus de score (ver comentário lá)."""
+    turno_l = turno_collab.strip().lower()
+    if turno_l == "diurno":
+        return 7 <= hora_os < 19
+    if turno_l == "noturno":
+        return hora_os >= 19 or hora_os < 7
+    return False
+
+
 def _cargo_compativel(cargo_l: str, categoria: str) -> bool:
     if categoria == "Elétrica":
         return any(k in cargo_l for k in _CARGO_ELETRICA)
@@ -145,10 +157,7 @@ def calcular_score(
     score = _score_funcao(cargo_l, categoria)
     score += _score_habilidades(habilidades or [], categoria)
 
-    turno_l = turno_collab.strip().lower()
-    if turno_l == "diurno" and 7 <= hora_os < 19:
-        score += SCORE_TURNO_CORRETO
-    elif turno_l == "noturno" and (hora_os >= 19 or hora_os < 7):
+    if _turno_compativel(turno_collab, hora_os):
         score += SCORE_TURNO_CORRETO
 
     score += min(exp_ativo * SCORE_EXP_ATIVO, 60)
@@ -172,12 +181,23 @@ def indicar_responsavel(
     data_ref,
     hora_ref: int = 8,
     esta_disponivel_fn=None,
+    exigir_turno: bool = False,
 ):
     """
     Calcula o responsável recomendado para uma tarefa.
 
     `esta_disponivel_fn` deve ser uma função(row, data_ref) -> bool.
     Se None, usa disponibilidade sempre True (fallback).
+
+    `exigir_turno` transforma o bônus de turno (SCORE_TURNO_CORRETO) num filtro
+    obrigatório: só usa quando `hora_ref` reflete um turno que a origem da tarefa
+    já declara explicitamente (ex: nome do plano diz "NOTURNO") — nunca pro
+    `hora_ref=8` padrão usado quando o turno é apenas um palpite. Sem essa
+    distinção, todo plano sem turno no nome passaria a excluir automaticamente
+    qualquer colaborador noturno assim que um diurno estivesse disponível (quase
+    sempre o caso), mudando a recomendação da maioria das preventivas do sistema
+    por causa de um `hora_ref` que nunca foi uma informação real pra começo de
+    conversa — o oposto do que se pretende corrigir aqui.
     """
     if colaboradores is None or colaboradores.empty:
         return None, None, {}
@@ -217,6 +237,7 @@ def indicar_responsavel(
             "carga": carga.get(nome, 0),
             "categoria": categoria,
             "funcao_compativel": _cargo_compativel(cargo.lower(), categoria),
+            "turno_compativel": _turno_compativel(turno_col, hora_ref),
         }
 
     # -999 é o sentinel exclusivo de "indisponível" (retornado por calcular_score quando
@@ -238,6 +259,20 @@ def indicar_responsavel(
     compativeis = {n: s for n, s in disponiveis.items() if s["funcao_compativel"]}
     if compativeis:
         disponiveis = compativeis
+
+    # Mesmo raciocínio, agora pro turno: sem isso, a penalidade de carga acumulada
+    # (sem teto) podia fazer alguém do turno errado "ganhar" de alguém do turno certo
+    # que ainda estava disponível naquele dia — confirmado com dado real na HETRIN:
+    # plano "COLETA DIÁRIA MEDIDOR - NOTURNO - N1", um eletricista noturno realmente
+    # escalado pra aquele dia perdia pra um diurno assim que sua própria carga
+    # acumulada (de ser repetidamente o único noturno apto) alcançava o score de um
+    # diurno "fresco". Restringe ao subconjunto de turno certo quando ele existir;
+    # só usa o resto se ninguém do turno certo estiver disponível (mesma filosofia
+    # de preferir indicar alguém a nada).
+    if exigir_turno:
+        turno_compat = {n: s for n, s in disponiveis.items() if s["turno_compativel"]}
+        if turno_compat:
+            disponiveis = turno_compat
 
     ordenados = sorted(
         disponiveis,

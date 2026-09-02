@@ -15,7 +15,7 @@ from core.neovero_client import (
     get_headers, paginar, buscar_itens_varios_planos, filtros_planos, SIT_MAP, os_vinculada_visivel,
 )
 from core.exporters import gerar_excel_preventivas, gerar_excel_recomendacoes
-from core.planejamento import detectar_paridade, expandir_ocorrencias as _expandir_ocorrencias
+from core.planejamento import detectar_paridade, detectar_turno, expandir_ocorrencias as _expandir_ocorrencias
 from units.grand_massif import config as CFG
 from units.grand_massif.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
 from units.grand_massif.motor import indicar_responsavel, extrair_ativo
@@ -421,6 +421,16 @@ def api_preventivas():
             periodicidade = int(p.get("periodicidade") or 0)
             unidade = str(p.get("periodicidadeTempoUnidade") or "D")
             paridade = detectar_paridade(p.get("descricao", ""))
+            # Sem OS real ainda, não há dataHoraAbertura pra saber a hora de verdade —
+            # usa a hora de referência coerente com o turno que o próprio nome do plano
+            # já declara (ex: "... - NOTURNO - N2"), senão o motor nunca dá o bônus de
+            # turno certo pra ninguém noturno (a hora-padrão de 8h é sempre diurna).
+            # exigir_turno só vale quando o nome do plano é explícito sobre o turno —
+            # pros ~80% dos planos sem essa informação, turno continua só bônus de
+            # score (nunca vira filtro obrigatório baseado num hora_ref chutado).
+            turno_plano = detectar_turno(p.get("descricao", ""))
+            hora_ref = 20 if turno_plano == "Noturno" else 8
+            exigir_turno = turno_plano is not None
 
             for item in itens:
                 dt_str = str(item.get("dataProximaPreventiva") or "")[:10]
@@ -441,7 +451,7 @@ def api_preventivas():
                 for dt_prev in datas:
                     recomend, cargo, escala, score = (None, None, None, -999)
                     if colab is not None:
-                        principal, _, _ = indicar_responsavel(colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev)
+                        principal, _, _ = indicar_responsavel(colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev, hora_ref, exigir_turno=exigir_turno)
                         if principal:
                             recomend = principal["nome"]
                             cargo = principal["cargo"]

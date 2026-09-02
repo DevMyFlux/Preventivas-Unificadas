@@ -272,3 +272,63 @@ def test_ninguem_compativel_ainda_assim_recomenda_alguem():
     )
     assert principal is not None
     assert principal["nome"] == "Gestora"
+
+
+# ── exigir_turno — bug real reportado na HETRIN ──────────────────────────────────
+# Plano "COLETA DIÁRIA MEDIDOR - NOTURNO - N2" (02/09/2026) recomendou Salem Abreu
+# da Silva Junior, eletricista só diurno — porque preventivas futuras (sem OS real,
+# sem dataHoraAbertura) sempre usavam hora_ref=8 (diurno) e o turno nunca passava de
+# bônus de score, então a penalidade de carga acumulada podia fazer o turno errado
+# "ganhar" de um turno certo que ainda estava escalado pra aquele dia. exigir_turno
+# transforma o bônus num filtro, só quando o próprio nome do plano já é explícito
+# sobre o turno — nunca pro hora_ref=8 padrão "chutado" (ver docstring da função).
+
+def test_exigir_turno_impede_diurno_de_vencer_carga_baixa_em_plano_noturno():
+    colab = pd.DataFrame([
+        {"funcionario": "Salem (diurno)", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Lúcio (noturno, sobrecarregado)", "cargo": "Eletricista", "turno": "Noturno", "regime": "Fixo"},
+    ])
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Salem (diurno)": 0, "Lúcio (noturno, sobrecarregado)": 5},  # -125 de penalidade no noturno
+        tipo="Coleta diária medidor", setor="Área externa", ativo="Medidor de energia",
+        data_ref=date(2026, 9, 2), hora_ref=20, exigir_turno=True,
+    )
+    # mesmo o noturno estando bem mais penalizado por carga, o turno certo tem que vencer
+    assert principal["nome"] == "Lúcio (noturno, sobrecarregado)"
+    assert scores["Salem (diurno)"]["turno_compativel"] is False
+    assert scores["Lúcio (noturno, sobrecarregado)"]["turno_compativel"] is True
+
+
+def test_exigir_turno_falso_preserva_comportamento_antigo_so_bonus():
+    """Sem exigir_turno (planos sem turno explícito no nome — a maioria), a mesma
+    situação de carga ainda pode virar pro diurno — comportamento pré-existente,
+    não regride pra planos onde o turno é só um palpite (hora_ref=8 padrão)."""
+    colab = pd.DataFrame([
+        {"funcionario": "Diurno fresco", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Noturno sobrecarregado", "cargo": "Eletricista", "turno": "Noturno", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Diurno fresco": 0, "Noturno sobrecarregado": 5},
+        tipo="Manutenção geral", setor="Área externa", ativo="Equipamento qualquer",
+        data_ref=date(2026, 9, 2), hora_ref=8, exigir_turno=False,
+    )
+    assert principal["nome"] == "Diurno fresco"
+
+
+def test_exigir_turno_sem_ninguem_do_turno_certo_ainda_recomenda_alguem():
+    """exigir_turno não pode virar 'sem candidato' quando ninguém do turno certo
+    está disponível — mesma filosofia do gate de cargo: prefere indicar alguém a
+    nada, só não deixa o turno errado vencer quando existe opção certa."""
+    colab = pd.DataFrame([
+        {"funcionario": "Único diurno disponível", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="Coleta diária medidor", setor="Área externa", ativo="Medidor de energia",
+        data_ref=date(2026, 9, 2), hora_ref=20, exigir_turno=True,
+    )
+    assert principal is not None
+    assert principal["nome"] == "Único diurno disponível"
+    assert scores["Único diurno disponível"]["turno_compativel"] is False
