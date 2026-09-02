@@ -13,8 +13,18 @@ from dateutil.relativedelta import relativedelta
 
 _RE_IMPAR = re.compile(r"\bIMPAR\b")
 _RE_PAR = re.compile(r"\bPAR\b")
-_RE_NOTURNO = re.compile(r"\bNOTURNO\b")
-_RE_DIURNO = re.compile(r"\bDIURNO\b")
+# NOITE/DIA são sinônimos de NOTURNO/DIURNO usados de fato em vários planos reais (ex:
+# "PM - RONDA ILUMINAÇÃO/TOMADAS - NOITE - N1", "PM - LIMPEZA FANCOILS BL1 - DIA 01/02")
+# — confirmado com dado real que faltar esse sinônimo fazia ~15% das ocorrências de um
+# mês inteiro (352 de 2403, Hetrin/Set-2026) nunca receberem o bônus/filtro de turno
+# correto, porque detectar_turno() retornava None e o motor caía no hora_ref=8 padrão
+# pra rondas que na verdade eram noturnas (caso real: Jussara, Aux. Eletricista Diurno,
+# recomendada pra "RONDA ILUMINAÇÃO/TOMADAS - NOITE - N1" no lugar do eletricista
+# noturno de plantão real). \bDIA\b não confunde com "DIÁRIA"/"DIÁRIO" (word-boundary
+# não bate no meio de outra palavra) nem com a unidade de periodicidade ("2 Dias" vem
+# de um campo separado, nunca do nome do plano analisado aqui.
+_RE_NOTURNO = re.compile(r"\b(NOTURNO|NOITE)\b")
+_RE_DIURNO = re.compile(r"\b(DIURNO|DIA)\b")
 
 
 def _remover_acentos(texto: str) -> str:
@@ -43,6 +53,8 @@ def detectar_paridade(nome_plano: str) -> str | None:
 def detectar_turno(nome_plano: str) -> str | None:
     """Detecta se um plano é explicitamente Diurno ou Noturno pelo nome/descrição —
     mesma técnica de detectar_paridade() (word-boundary, acento/caixa normalizados).
+    Reconhece tanto NOTURNO/DIURNO quanto os sinônimos NOITE/DIA (ver comentário nas
+    regexes acima).
 
     Usado pra escolher uma hora de referência coerente ao recomendar responsável
     por uma preventiva ainda não realizada (sem OS real, sem `dataHoraAbertura` pra

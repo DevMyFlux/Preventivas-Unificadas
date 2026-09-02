@@ -44,6 +44,37 @@ def test_detectar_turno_nome_vazio():
     assert detectar_turno(None) is None
 
 
+# ── NOITE/DIA — bug real confirmado por investigação (set/2026) ─────────────────
+# detectar_turno() só reconhecia NOTURNO/DIURNO — mas ~15% das ocorrências de um mês
+# inteiro (352 de 2403, Hetrin/Set-2026) vêm de planos nomeados com NOITE/DIA, não
+# NOTURNO/DIURNO (ex: "PM - RONDA ILUMINAÇÃO/TOMADAS - NOITE - N1"), e por isso nunca
+# recebiam o filtro/bônus de turno correto — casos reais confirmados: Jussara da
+# Conceição Cruz (Aux. Eletricista, Diurno) recomendada 8x pra ronda NOTURNA de
+# Iluminação/Tomadas no lugar do eletricista noturno de plantão real.
+
+@pytest.mark.parametrize("nome, esperado", [
+    ("PM - RONDA ILUMINAÇÃO/TOMADAS - NOITE - N1", "Noturno"),
+    ("PM - RONDA ILUMINAÇÃO/TOMADAS - DIA - D1", "Diurno"),
+    ("LIMPEZA QUINZENAL - EXAUSTORES/DIFUSORES - NOITE - N2", "Noturno"),
+    ("PM - MENSAL MOTOBOMBAS NOITE - N1", "Noturno"),
+    ("PM - LIMPEZA FANCOILS BL1 - DIA 01/02", "Diurno"),
+    ("pm - ronda - noite", "Noturno"),  # minúsculo
+])
+def test_detectar_turno_reconhece_noite_dia(nome, esperado):
+    assert detectar_turno(nome) == esperado
+
+
+@pytest.mark.parametrize("nome", [
+    "COLETA DIÁRIA HIDRÔMETRO",  # sem sufixo de turno — "DIÁRIA" não pode virar "DIA"
+    "PM RONDA DIÁRIO - SISTEMA DE AR COMPRIMIDO",
+])
+def test_detectar_turno_dia_nao_confunde_com_diaria(nome):
+    """\\bDIA\\b não deve casar dentro de 'DIÁRIA'/'DIÁRIO' (word-boundary não bate no
+    meio de outra palavra, mesmo depois de normalizar acento: 'DIÁRIA' -> 'DIARIA',
+    onde 'DIA' aparece seguido de 'RIA', sem boundary)."""
+    assert detectar_turno(nome) is None
+
+
 # ── Regressão: hora de referência derivada do turno do plano ────────────────────
 
 def _score_diurno_vs_noturno(hora_ref: int) -> tuple[int, int]:

@@ -113,6 +113,10 @@ def api_preventivas():
         hist_tipo = defaultdict(int)
         hist_ativo = defaultdict(int)
         carga = defaultdict(int)
+        # andares/carga_alta acumulam só dentro desta geração (preferência de
+        # agrupamento por andar e balanceamento de tarefas complexas desta rodada).
+        andares = defaultdict(set)
+        carga_alta = defaultdict(int)
 
         planos = paginar(h, {
             "limit": 100,
@@ -161,13 +165,20 @@ def api_preventivas():
                 for dt_prev in datas:
                     recomend, cargo, escala, score = (None, None, None, -999)
                     if colab is not None:
-                        principal, _, _ = indicar_responsavel(colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev, hora_ref, exigir_turno=exigir_turno)
+                        principal, _, _ = indicar_responsavel(
+                            colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev, hora_ref,
+                            exigir_turno=exigir_turno, andares_colaborador=andares, carga_alta=carga_alta,
+                        )
                         if principal:
                             recomend = principal["nome"]
                             cargo = principal["cargo"]
                             escala = principal["escala"]
                             score = principal["score"]
                             carga[recomend] += 1
+                            if principal.get("andar"):
+                                andares[recomend].add(principal["andar"])
+                            if principal.get("complexidade") == "Alta":
+                                carga_alta[recomend] += 1
 
                     preventivas.append({
                         "data_prev": dt_prev.strftime("%d/%m/%Y"),

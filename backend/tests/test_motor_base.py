@@ -6,10 +6,16 @@ import pytest
 
 from core.motor_base import (
     _cargo_compativel,
+    _tier_cargo,
     calcular_score,
     classificar_categoria,
+    classificar_complexidade,
+    extrair_andar,
     indicar_responsavel,
     is_critico,
+    COMPLEXIDADE_ALTA,
+    COMPLEXIDADE_BAIXA,
+    COMPLEXIDADE_MEDIA,
 )
 
 
@@ -332,3 +338,356 @@ def test_exigir_turno_sem_ninguem_do_turno_certo_ainda_recomenda_alguem():
     assert principal is not None
     assert principal["nome"] == "Único diurno disponível"
     assert scores["Único diurno disponível"]["turno_compativel"] is False
+
+
+# ── classificar_categoria: tipo_os prioriza sobre setor/ativo ───────────────────
+# Bug real confirmado por investigação (Hetrin, set/2026): William Miranda de Moraes
+# (Técnico de Climatização, Noturno) foi recomendado numa ronda ELÉTRICA de
+# Iluminação/Tomadas (plano "PM - RONDA ILUMINAÇÃO/TOMADAS - DIA - D1") porque o
+# SETOR da ocorrência ("BLOCO 4 1º ANDAR - CASA DE MÁQUINAS CLIMATIZAÇÃO") continha a
+# palavra "climatização", que batia em _KW_REFRIG antes de "iluminação"/"tomada"
+# (_KW_ELETRICA) serem sequer considerados — a versão antiga concatenava
+# tipo_os+setor+ativo num único texto sem dar prioridade a de onde veio a keyword.
+
+def test_classificar_categoria_prioriza_tipo_os_sobre_setor():
+    categoria = classificar_categoria(
+        "PM - RONDA ILUMINAÇÃO/TOMADAS - DIA - D1",
+        "BLOCO 4 1º ANDAR - CASA DE MÁQUINAS CLIMATIZAÇÃO",
+        "",
+    )
+    assert categoria == "Elétrica"
+
+
+def test_classificar_categoria_cai_pro_setor_so_se_tipo_os_nao_bater_nada():
+    """Sem sinal nenhum no tipo_os, setor/ativo continuam servindo de sinal — não é
+    que o setor deixou de importar, só que ele vira sinal secundário."""
+    categoria = classificar_categoria("Serviço qualquer sem palavra-chave", "", "Ar condicionado split")
+    assert categoria == "Refrigeração"
+
+
+def test_bug_william_miranda_nao_fica_mais_compativel_por_engano():
+    categoria = classificar_categoria(
+        "PM - RONDA ILUMINAÇÃO/TOMADAS - DIA - D1",
+        "BLOCO 4 1º ANDAR - CASA DE MÁQUINAS CLIMATIZAÇÃO",
+        "",
+    )
+    assert _cargo_compativel("técnico de climatização", categoria) is False
+    assert _cargo_compativel("eletricista", categoria) is True
+
+
+# ── classificar_categoria: keywords novas (regras do email HETRIN) ──────────────
+
+@pytest.mark.parametrize("tipo_os, categoria_esperada", [
+    ("PM - RONDA SEMANAL - QUADROS DE DISTRIBUIÇÃO", "Elétrica"),
+    ("PM - RONDA SEMANAL - QUADROS HVAC", "Elétrica"),
+    ("PM - RONDA DIÁRIA - SISTEMA DE AR COMPRIMIDO - ÍMPAR", "Refrigeração"),
+    ("PM MENSAL - SISTEMA TERMOSSOLAR - HETRIN - DIURNO", "Refrigeração"),
+])
+def test_classificar_categoria_novas_keywords_email(tipo_os, categoria_esperada):
+    assert classificar_categoria(tipo_os, "", "") == categoria_esperada
+
+
+def test_quadros_hvac_nao_aceita_mais_tecnico_climatizacao():
+    """Bug confirmado por investigação: sem a keyword, 'QUADROS HVAC' caía em
+    'Inspeção' genérica e aceitava Técnico de Climatização como apto — mesmo sendo um
+    plano elétrico (EXCLUSIVAMENTE Eletricistas, pelo pedido da supervisão)."""
+    categoria = classificar_categoria("PM - RONDA SEMANAL - QUADROS HVAC", "", "")
+    assert _cargo_compativel("técnico de climatização", categoria) is False
+    assert _cargo_compativel("eletricista", categoria) is True
+
+
+def test_limpeza_nobreak_nao_vira_alta_so_por_causa_do_equipamento():
+    """'Limpeza' é baixa complexidade por definição, mesmo perto de um nobreak —
+    checado antes das keywords de equipamento (ver classificar_complexidade)."""
+    assert classificar_complexidade("PM - LIMPEZA GERAL - SALA DOS NOBREAKS", "", "") == COMPLEXIDADE_BAIXA
+
+
+# ── Bug real confirmado: oficina "CCO" colidia com keyword elétrica ─────────────
+# A oficina real "CENTRO DE COMANDO DA OPERAÇÃO - CCO" (usada nos 6 planos de coleta
+# diária de medidor/hidrômetro da HETRIN) continha "cco"/"comando", que eram keywords
+# de _KW_ELETRICA — como routes.py concatena tipo+descricao+oficina antes de chamar
+# indicar_responsavel, isso forçava 'Elétrica' pra TODAS as coletas e excluía por
+# engano os auxiliares de climatização/manutenção geral (ex: Isabel Alves Dias) que a
+# escala nomeada da supervisão exige pra essas coletas.
+
+def test_coleta_medidor_com_oficina_cco_nao_vira_eletrica():
+    tipo_classif = "Preventiva COLETA DIÁRIA MEDIDOR - NOTURNO - N2 CENTRO DE COMANDO DA OPERAÇÃO - CCO"
+    categoria = classificar_categoria(tipo_classif, "", "")
+    assert categoria != "Elétrica"
+    assert _cargo_compativel("aux. manutenção / climatização", categoria) is True
+
+
+def test_coleta_hidrometro_nao_vira_hidraulico_exclusivo():
+    """'coleta' tem prioridade sobre 'hidrômetro' (_KW_HIDRO) — bug real confirmado
+    por validação com dado real: classificar como 'Hidráulico' excluía Aux. Eletricista
+    (cargo real de Jussara/Eduonete, nomeadas pela supervisão pra essa coleta) do
+    cargo compatível, e 28/28 ocorrências de setembro/2026 foram pra outra pessoa."""
+    tipo_classif = "Preventiva COLETA DIÁRIA HIDRÔMETRO -DIURNO - D1 CENTRO DE COMANDO DA OPERAÇÃO - CCO"
+    categoria = classificar_categoria(tipo_classif, "", "")
+    assert categoria == "Inspeção"
+    assert _cargo_compativel("aux. eletricista", categoria) is True
+
+
+# ── classificar_complexidade ─────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("tipo_os, esperado", [
+    ("PM - LIMPEZA GERAL - SALA DOS NOBREAKS", COMPLEXIDADE_BAIXA),
+    ("COLETA DIÁRIA MEDIDOR - DIURNO - D1", COMPLEXIDADE_BAIXA),
+    ("COLETA DIÁRIA HIDRÔMETRO -DIURNO - D1", COMPLEXIDADE_BAIXA),
+    ("PM - RONDA SEMANAL - INSPEÇÃO NOBREAKS", COMPLEXIDADE_ALTA),
+    ("PM - RONDA SEMANAL - QUADROS DE DISTRIBUIÇÃO", COMPLEXIDADE_ALTA),
+    ("PM RONDA PERIÓDICA - FANCOILS HIDRÔNICOS", COMPLEXIDADE_ALTA),
+    ("PM MENSAL - SPLIT - HETRIN", COMPLEXIDADE_ALTA),
+    ("PM - RONDA ILUMINAÇÃO/TOMADAS - DIA - D1", COMPLEXIDADE_MEDIA),
+])
+def test_classificar_complexidade_casos_reais(tipo_os, esperado):
+    assert classificar_complexidade(tipo_os, "", "") == esperado
+
+
+# ── _tier_cargo ───────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("cargo, tier_esperado", [
+    ("Eletricista", "tecnico"),
+    ("Técnico de Climatização", "tecnico"),
+    ("Aux. Eletricista", "auxiliar"),
+    ("Aux. Manutenção / Climatização", "auxiliar"),
+    ("Auxiliar Administrativo", "outro"),
+    ("Gerente de Equipe/Engenheira", "outro"),
+])
+def test_tier_cargo(cargo, tier_esperado):
+    assert _tier_cargo(cargo.lower()) == tier_esperado
+
+
+def test_score_complexidade_favorece_auxiliar_em_tarefa_baixa():
+    colab = pd.DataFrame([
+        {"funcionario": "Auxiliar", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Tecnico", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="COLETA DIÁRIA MEDIDOR - DIURNO - D1", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal["nome"] == "Auxiliar"
+    assert scores["Auxiliar"]["complexidade"] == COMPLEXIDADE_BAIXA
+
+
+def test_score_complexidade_favorece_tecnico_em_tarefa_alta():
+    colab = pd.DataFrame([
+        {"funcionario": "Auxiliar", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Tecnico", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="PM - RONDA SEMANAL - QUADROS DE DISTRIBUIÇÃO", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal["nome"] == "Tecnico"
+    assert scores["Tecnico"]["complexidade"] == COMPLEXIDADE_ALTA
+
+
+# ── Gate de complexidade: carga acumulada não pode inverter o tier certo ────────
+# Bug real confirmado por validação com dado real (HMB, setembro/2026 inteiro): com
+# complexidade sendo SÓ bônus de score (sem gate), a penalidade de carga_alta
+# acumulada (sem teto) podia superar o bônus pontual ao longo do mês — 311
+# ocorrências de Alta complexidade acabaram indo pra um auxiliar (o oposto do
+# pedido), só porque o técnico "certo" já tinha acumulado muita carga_alta. Mesmo
+# raciocínio do teste 'test_balanceamento_nao_supera_incompatibilidade_de_cargo',
+# agora pra hierarquia técnico/auxiliar.
+
+def test_gate_complexidade_tecnico_vence_mesmo_com_muita_carga_alta():
+    colab = pd.DataFrame([
+        {"funcionario": "Tecnico Sobrecarregado", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Auxiliar Nunca Escalado", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Tecnico Sobrecarregado": 20, "Auxiliar Nunca Escalado": 0},
+        carga_alta={"Tecnico Sobrecarregado": 20, "Auxiliar Nunca Escalado": 0},
+        tipo="PM - RONDA SEMANAL - QUADROS DE DISTRIBUIÇÃO", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    # mesmo com o técnico deeply penalizado por carga/carga_alta, ele tem que vencer
+    # numa tarefa de Alta complexidade — o auxiliar não pode "ganhar" só por ter
+    # carga zero
+    assert principal["nome"] == "Tecnico Sobrecarregado"
+    assert scores["Tecnico Sobrecarregado"]["tier_adequado"] is True
+    assert scores["Auxiliar Nunca Escalado"]["tier_adequado"] is False
+
+
+def test_gate_complexidade_auxiliar_vence_mesmo_com_muita_carga():
+    colab = pd.DataFrame([
+        {"funcionario": "Auxiliar Sobrecarregado", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Tecnico Nunca Escalado", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Auxiliar Sobrecarregado": 20, "Tecnico Nunca Escalado": 0},
+        tipo="COLETA DIÁRIA MEDIDOR - DIURNO - D1", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal["nome"] == "Auxiliar Sobrecarregado"
+
+
+def test_gate_complexidade_media_nao_restringe_tier():
+    """Complexidade Média (default) não tem tier preferencial — o gate não deve
+    restringir nada, deixando o critério normal (score/carga) decidir."""
+    colab = pd.DataFrame([
+        {"funcionario": "Auxiliar", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Tecnico", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={},
+        carga={"Auxiliar": 0, "Tecnico": 5},
+        tipo="PM - RONDA ILUMINAÇÃO/TOMADAS - DIA - D1", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=8,
+    )
+    assert scores["Auxiliar"]["complexidade"] == COMPLEXIDADE_MEDIA
+    assert scores["Auxiliar"]["tier_adequado"] is True
+    assert scores["Tecnico"]["tier_adequado"] is True
+    # com Média, o desempate é só carga — o auxiliar (carga menor) vence
+    assert principal["nome"] == "Auxiliar"
+
+
+def test_gate_complexidade_nao_esvazia_pool_sem_tier_certo():
+    """Sem ninguém do tier adequado disponível, prefere indicar o melhor disponível
+    a devolver 'sem candidato' — mesma filosofia soft dos outros gates."""
+    colab = pd.DataFrame([
+        {"funcionario": "Único Auxiliar Disponível", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="PM - RONDA SEMANAL - QUADROS DE DISTRIBUIÇÃO", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10,
+    )
+    assert principal is not None
+    assert principal["nome"] == "Único Auxiliar Disponível"
+
+
+# ── extrair_andar ────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("setor, esperado", [
+    ("BLOCO 4 1º ANDAR - ENFERMARIA CIRÚRGICA 213", "1º ANDAR"),
+    ("BLOCO B 4º ANDA - CONFORTO", "4º ANDAR"),  # erro de digitação real (sem o R)
+    ("BLOCO A 1SS - GERADORES", "1º SUBSOLO"),
+    ("BLOCO B TÉRREO - EMERGÊNCIA", "TÉRREO"),
+    ("BLOCO 6 1º ANDAR - CME - LAJE TÉCNICA", "1º ANDAR"),  # andar numerado tem prioridade
+    ("BLOCO B COBERTURA - CASA DE MAQUINA ELEVADORES 01", "COBERTURA"),
+    ("ÁREA EXTERNA - CENTRAL DE RESÍDUOS - RESÍDUOS QUÍMICOS", None),
+    ("", None),
+    (None, None),
+])
+def test_extrair_andar(setor, esperado):
+    assert extrair_andar(setor) == esperado
+
+
+def test_andar_repetido_favorece_colaborador_ja_alocado_no_mesmo_andar():
+    colab = pd.DataFrame([
+        {"funcionario": "Ana", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Bia", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    andares = {"Ana": {"1º ANDAR"}}
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="PM - RONDA ILUMINAÇÃO/TOMADAS", setor="BLOCO 4 1º ANDAR - ENFERMARIA", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10, andares_colaborador=andares,
+    )
+    assert principal["nome"] == "Ana"
+    assert scores["Ana"]["mesmo_andar"] is True
+    assert scores["Bia"]["mesmo_andar"] is False
+
+
+def test_andar_nunca_quebra_cargo_ou_turno():
+    """O bônus de andar só decide entre quem já passou pelos gates de cargo/turno —
+    nunca faz alguém tecnicamente inadequado (ou do turno errado) vencer."""
+    colab = pd.DataFrame([
+        {"funcionario": "Eletricista certo", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Encanador no mesmo andar", "cargo": "Encanador", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    andares = {"Encanador no mesmo andar": {"1º ANDAR"}}
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="PM - RONDA ILUMINAÇÃO/TOMADAS", setor="BLOCO 4 1º ANDAR - ENFERMARIA", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10, andares_colaborador=andares,
+    )
+    assert principal["nome"] == "Eletricista certo"
+
+
+# ── carga_alta: balanceamento de tarefas de alta complexidade ───────────────────
+
+def test_carga_alta_penaliza_quem_ja_acumulou_muitas_tarefas_complexas():
+    colab = pd.DataFrame([
+        {"funcionario": "Sobrecarregado de Alta", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Fresco", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    carga_alta = {"Sobrecarregado de Alta": 10, "Fresco": 0}
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="PM - RONDA SEMANAL - QUADROS DE DISTRIBUIÇÃO", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10, carga_alta=carga_alta,
+    )
+    assert principal["nome"] == "Fresco"
+
+
+def test_carga_alta_nao_penaliza_tarefa_baixa():
+    """carga_alta só entra em jogo quando a tarefa ATUAL é Alta complexidade — não
+    penaliza quem já fez tarefas complexas antes, se a tarefa de agora é simples."""
+    colab = pd.DataFrame([
+        {"funcionario": "Historico de Alta", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+        {"funcionario": "Sem historico", "cargo": "Aux. Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    carga_alta = {"Historico de Alta": 10, "Sem historico": 0}
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="COLETA DIÁRIA MEDIDOR - DIURNO - D1", setor="", ativo="",
+        data_ref=date(2026, 9, 10), hora_ref=10, carga_alta=carga_alta,
+    )
+    # mesmo score pros dois (mesma carga_alta não se aplica, mesma carga=0) -> empate,
+    # que aqui só pode ser resolvido pela ordem de iteração; o importante é que os
+    # dois têm o MESMO score (não houve penalidade indevida)
+    assert scores["Historico de Alta"]["score"] == scores["Sem historico"]["score"]
+
+
+# ── nomes_permitidos: escala nomeada obrigatória (coleta HETRIN) ────────────────
+
+def test_nomes_permitidos_restringe_quando_ha_gente_no_conjunto():
+    colab = pd.DataFrame([
+        {"funcionario": "Isabel Alves Dias", "cargo": "Aux. Manutenção / Climatização", "turno": "Noturno", "regime": "Fixo"},
+        {"funcionario": "Outro Auxiliar", "cargo": "Aux. Manutenção", "turno": "Noturno", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="COLETA DIÁRIA MEDIDOR - NOTURNO - N2", setor="", ativo="",
+        data_ref=date(2026, 9, 2), hora_ref=20,
+        nomes_permitidos={"Isabel Alves Dias"},
+    )
+    assert principal["nome"] == "Isabel Alves Dias"
+
+
+def test_nomes_permitidos_nao_esvazia_pool_quando_ninguem_do_conjunto_disponivel():
+    """Mesma filosofia soft dos outros gates: se ninguém do conjunto nomeado está
+    disponível, prefere indicar o melhor disponível a devolver 'sem candidato'."""
+    colab = pd.DataFrame([
+        {"funcionario": "Único disponível", "cargo": "Aux. Manutenção", "turno": "Noturno", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="COLETA DIÁRIA MEDIDOR - NOTURNO - N2", setor="", ativo="",
+        data_ref=date(2026, 9, 2), hora_ref=20,
+        nomes_permitidos={"Alguém que não está escalado hoje"},
+    )
+    assert principal is not None
+    assert principal["nome"] == "Único disponível"
+
+
+def test_nomes_permitidos_none_nao_restringe_nada():
+    """None (default) é o comportamento pré-existente — sem restrição nenhuma."""
+    colab = pd.DataFrame([
+        {"funcionario": "Ana", "cargo": "Eletricista", "turno": "Diurno", "regime": "Fixo"},
+    ])
+    principal, _, _ = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+        data_ref=date(2026, 9, 10), hora_ref=10, nomes_permitidos=None,
+    )
+    assert principal["nome"] == "Ana"

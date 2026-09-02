@@ -19,6 +19,7 @@ from core.planejamento import detectar_paridade, detectar_turno, expandir_ocorre
 from units.grand_massif import config as CFG
 from units.grand_massif.colaboradores import carregar_colaboradores, invalidar_cache as invalidar_cache_colaboradores
 from units.grand_massif.motor import indicar_responsavel, extrair_ativo
+from units.grand_massif.escala_nomeada import nomes_permitidos_coleta
 
 bp = Blueprint("grand_massif", __name__, url_prefix="/api/grandmassif")
 
@@ -403,6 +404,11 @@ def api_preventivas():
             colab = carregar_colaboradores()
             hist_tipo = hist_ativo = carga = defaultdict(int)
         colab = _colab_ativos(colab)
+        # andares/carga_alta só fazem sentido acumulados DENTRO desta geração (preferência
+        # de agrupamento por andar e balanceamento de tarefas complexas desta rodada) —
+        # sempre começam vazios, mesmo quando `carga` reaproveita o cache de outra rota.
+        andares = defaultdict(set)
+        carga_alta = defaultdict(int)
 
         planos = paginar(h, {
             "limit": 100,
@@ -449,19 +455,33 @@ def api_preventivas():
                 datas = _expandir_ocorrencias(dt_base, periodicidade, unidade, d_ini, d_fim, paridade)
 
                 for dt_prev in datas:
+                    dia_par_str = "Par" if dt_prev.day % 2 == 0 else "Ímpar"
+                    # Escala nominal obrigatória (só bate pra coleta diária de medidor/
+                    # hidrômetro — ver units/grand_massif/escala_nomeada.py); None pros
+                    # demais ~73 planos, sem restringir nada nesse caso.
+                    nomes_permitidos = nomes_permitidos_coleta(p.get("descricao", ""), dia_par_str)
+
                     recomend, cargo, escala, score = (None, None, None, -999)
                     if colab is not None:
-                        principal, _, _ = indicar_responsavel(colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev, hora_ref, exigir_turno=exigir_turno)
+                        principal, _, _ = indicar_responsavel(
+                            colab, hist_tipo, hist_ativo, carga, tipo_classif, setor, equip_nome, dt_prev, hora_ref,
+                            exigir_turno=exigir_turno, andares_colaborador=andares, carga_alta=carga_alta,
+                            nomes_permitidos=nomes_permitidos,
+                        )
                         if principal:
                             recomend = principal["nome"]
                             cargo = principal["cargo"]
                             escala = principal["escala"]
                             score = principal["score"]
                             carga[recomend] += 1
+                            if principal.get("andar"):
+                                andares[recomend].add(principal["andar"])
+                            if principal.get("complexidade") == "Alta":
+                                carga_alta[recomend] += 1
 
                     preventivas.append({
                         "data_prev": dt_prev.strftime("%d/%m/%Y"),
-                        "dia_par": "Par" if dt_prev.day % 2 == 0 else "Ímpar",
+                        "dia_par": dia_par_str,
                         "atrasada": dt_prev < date.today(),
                         "plano": p.get("descricao", ""),
                         "tipo": tipo,
