@@ -1,15 +1,9 @@
 {
   "DOUGLAS DOS SANTOS VIEIRA": {
-    "aviso": "Bloqueado — observação da escala: Ingresso previsto/condicionado em 01/09.",
-    "bloqueado": true
-  },
-  "MARCELO GOMES VICENTE": {
-    "aviso": "Bloqueado — observação da escala: Ingresso previsto/condicionado em 02/09.",
-    "bloqueado": true
+    "bloqueado": false
   },
   "MATHEUS ANDRADE DE SOUSA": {
-    "aviso": "Bloqueado — observação da escala: Ingresso previsto/condicionado em 01/09.",
-    "bloqueado": true
+    "bloqueado": false
   },
   "UELTON NASCIMENTO SILVA": {
     "aviso": "Bloqueado — observação da escala: Cobertura excepcional/condicionada de folguista Aux. Elétrica.",

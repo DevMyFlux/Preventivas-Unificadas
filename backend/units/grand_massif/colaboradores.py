@@ -248,7 +248,12 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
     _PLANTAO = {"plantão", "plantao", "plant", "planta"}
     _HORARIO = {"horario", "horário", "hora", "carga horaria"}
     _SEPARADORES = {"DIURNO": "Diurno", "NOTURNO": "Noturno"}
-    _MARCADORES_VAGA = ("vaga", "posicao nao coberta")
+    # "em processo de contratação" confirmado na planilha real de outubro/2026 (2
+    # linhas de vaga em aberto, nome literal "Em  processo de contratação" — sem
+    # pessoa real por trás). Mesmo padrão de vaga fantasma já resolvido pra
+    # "vaga"/"posição não coberta"; ver também _MARCADORES_VAGA_HMB em
+    # units/brasilandia/colaboradores.py, que já cobria esse texto pro outro formato.
+    _MARCADORES_VAGA = ("vaga", "posicao nao coberta", "em processo de contratacao")
 
     col_nome, col_cargo, col_plantao, col_horario = 2, 4, None, 6
     dia_col: dict[int, int] = {}
@@ -294,7 +299,12 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
         nome = cell_nome.strip()
         if nome.upper() in ("NAN", ""):
             continue
-        if any(_ascii_lower(nome).startswith(m) for m in _MARCADORES_VAGA):
+        # " ".join(...split()) colapsa espaços duplos — confirmado na planilha real
+        # de outubro/2026, o nome da vaga vem literalmente como "Em  processo de
+        # contratação" (dois espaços entre "Em" e "processo"), o que quebraria um
+        # startswith() ingênuo contra o marcador normalizado de um espaço só.
+        nome_norm_vaga = " ".join(_ascii_lower(nome).split())
+        if any(nome_norm_vaga.startswith(m) for m in _MARCADORES_VAGA):
             continue  # vaga/posição em aberto (ex: "POSIÇÃO NÃO COBERTA") — não é um colaborador real
 
         cargo_cell = df_raw.iloc[i, col_cargo]

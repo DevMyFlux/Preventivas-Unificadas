@@ -230,7 +230,9 @@ def _eh_formato_calendario(df_raw) -> bool:
 def _detectar_colunas_escala(df_raw) -> dict:
     _NOMES = {"nome", "funcionario", "colaborador", "servidor", "diarista"}
     _CARGOS = {"funcao", "cargo", "funcao/cargo"}
-    _PLANTAO = {"plantao", "plantaoo", "plant"}
+    # "escala" confirmado na planilha real de outubro/2026 — coluna nova (não
+    # existia em setembro), com texto tipo "Diurno impar"/"Noturno par"/"Comercial".
+    _PLANTAO = {"plantao", "plantaoo", "plant", "escala"}
     _HORARIO = {"horario", "hora", "carga horaria"}
 
     # Detecta a linha de cabeçalho: primeira com >= 10 dias ou com keyword "nome"/"cargo"
@@ -335,12 +337,18 @@ def _parse_calendario(df_raw):
         if not cargo or cargo.lower() in ("nan", ""):
             continue
 
-        # Novo formato: Plantão define turno e regime
+        # Novo formato: Plantão/Escala define turno e regime. Usa
+        # _parse_plantao_regime_hmb (a mesma função do formato rico/por-grupo — busca
+        # por palavra-chave + detectar_paridade) em vez de _parse_plantao_br: a
+        # coluna "Escala" real de outubro/2026 vem sem traço ("Diurno impar", não
+        # "Diurno - Ímpar"), e _parse_plantao_br (split por "-") lia isso tudo como
+        # turno="Diurno impar" e regime="Fixo" — errado. _parse_plantao_regime_hmb
+        # cobre os dois formatos (com e sem traço) igualmente bem.
         if col_plantao is not None:
             plantao_raw = str(df_raw.iloc[i, col_plantao] or "").strip()
             if not plantao_raw or plantao_raw.lower() == "nan":
                 continue  # linha de legenda/rodapé sem plantão → ignorar
-            turno_atual, regime = _parse_plantao_br(plantao_raw)
+            turno_atual, regime, _tipo_posto, _provisorio = _parse_plantao_regime_hmb(plantao_raw)
         else:
             regime = "Fixo"  # formato antigo: regime sempre Fixo
 

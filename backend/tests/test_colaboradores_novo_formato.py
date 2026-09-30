@@ -161,13 +161,37 @@ def test_nomes_nao_se_repetem_entre_hetrin_e_hmb(colab_hetrin, colab_hmb):
 # "o mais recente de verdade" assim que o app ia pro Railway. A escolha precisa
 # ser baseada no conteúdo do arquivo (formato rico), nunca em metadado do
 # sistema de arquivos.
+#
+# Não basta contar >= 2 arquivos "escala" no diretório: desde a migração de
+# setembro/2026 (provedor novo, formato calendário "ESCALA DE FOLGA"), é normal e
+# esperado ter 2 arquivos calendário lado a lado (mês atual + próximo mês já
+# carregado com antecedência, cada um pego automaticamente pelo nome do mês no
+# arquivo — ver _selecionar_arquivo). Isso não é o cenário que este teste cobre
+# (arquivo antigo formato rico/12x36 x novo calendário, ou vice-versa); precisa
+# genuinamente de pelo menos um arquivo em CADA formato pra fazer sentido — senão
+# o teste roda contra 2 arquivos calendário e falha por premissa errada, não por
+# bug real (confirmado: aconteceu ao adicionar a escala de outubro/2026 ao lado da
+# de setembro, ambas calendário).
 
-_TEM_DOIS_ARQUIVOS_HETRIN = os.path.exists(gm.DATA_DIR) and sum(
-    1 for f in os.listdir(gm.DATA_DIR) if f.lower().endswith(".xlsx") and "escala" in f.lower()
-) >= 2
-_TEM_DOIS_ARQUIVOS_HMB = os.path.exists(br.DATA_DIR) and sum(
-    1 for f in os.listdir(br.DATA_DIR) if f.lower().endswith(".xlsx") and "escala" in f.lower()
-) >= 2
+def _formatos_presentes(data_dir: str, eh_rico_fn) -> set:
+    formatos = set()
+    for f in os.listdir(data_dir):
+        if not (f.lower().endswith(".xlsx") and "escala" in f.lower()):
+            continue
+        try:
+            df_raw = pd.read_excel(os.path.join(data_dir, f), sheet_name=0, header=None, engine="openpyxl")
+            formatos.add("rico" if eh_rico_fn(df_raw) else "outro")
+        except Exception:
+            continue
+    return formatos
+
+
+_TEM_DOIS_ARQUIVOS_HETRIN = os.path.exists(gm.DATA_DIR) and _formatos_presentes(
+    gm.DATA_DIR, gm._eh_formato_rico
+) == {"rico", "outro"}
+_TEM_DOIS_ARQUIVOS_HMB = os.path.exists(br.DATA_DIR) and _formatos_presentes(
+    br.DATA_DIR, br._eh_formato_rico_hmb
+) == {"rico", "outro"}
 
 
 @pytest.mark.skipif(not _TEM_DOIS_ARQUIVOS_HETRIN, reason="precisa da planilha antiga e da nova lado a lado")
