@@ -567,8 +567,17 @@ def invalidar_cache() -> None:
 def esta_disponivel(row, data_os) -> bool:
     """Brasilândia verifica status por dia no calendário; fallback Par/Ímpar.
     Colaborador bloqueado (aptidão pendente) nunca está disponível, mesmo com
-    plantão agendado no dia — mesma regra da unidade Hetrin."""
+    plantão agendado no dia — mesma regra da unidade Hetrin.
+
+    dentro_do_vinculo() (core/colaboradores_overlay.py) checa admissão/desligamento
+    por DIA — complementa o campo `status` (Ativo/Desligado), que já é aplicado antes
+    disso na camada de rota (_colab_ativos) e só vale pro mês inteiro. Mesma exposição
+    estrutural da HETRIN (confirmado por simetria de arquitetura, ver core/
+    colaboradores_overlay.py::dentro_do_vinculo)."""
     if row.get("bloqueado"):
+        return False
+
+    if not _overlay.dentro_do_vinculo(row, data_os):
         return False
 
     dias_plantao = row.get("dias_plantao", {})

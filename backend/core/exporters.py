@@ -146,6 +146,7 @@ def gerar_excel_recomendacoes(resultados: list, nome_unidade: str = "") -> io.By
         "Sugestao diferente": "FFF9C4",
         "Sem resp. atual": "E3F2FD",
         "Sem candidato": "FFEBEE",
+        "Responsavel desligado": "FFCDD2",
     }
 
     for i, r in enumerate(resultados, 3):

@@ -1,6 +1,18 @@
 {
+  "CARLOS AURÉLIO DE CARVALHO": {
+    "data_desligamento": "2026-09-11",
+    "status": "Desligado"
+  },
+  "MAIKON JONATHAS GOMES BESSA": {
+    "data_desligamento": "2026-09-16",
+    "status": "Desligado"
+  },
   "WELLINGTON DE SOUZA BRITO": {
     "aviso": "Bloqueado — status \"Condicionado\": Atuação condicionada à validação da qualificação e autorização elétrica.",
     "bloqueado": true
+  },
+  "WILLIAM MIRANDA DE MORAES": {
+    "data_desligamento": "2026-09-22",
+    "status": "Desligado"
   }
 }

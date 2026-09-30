@@ -86,6 +86,19 @@ _KW_ELETRICA = [
     "ccm", "qgbt", "eletroduto", "cabo elétrico", "nobreak", "ups",
     "baixa tensão", "instalação elétric", "painel elétric",
     "quadro de distribuição", "quadros de distribuição", "quadro hvac", "quadros hvac",
+    # Adicionados a pedido da supervisão da HETRIN (auditoria de desligamento/
+    # recomendação, set/2026): "PM SEMANAL - TESTE DE PARTIDA DOS GRUPOS GERADORES" e
+    # "PM – MENSAL – INSPEÇÃO SISTEMA DE COMBATE A INCÊNDIO" caíam no fallback
+    # genérico 'Inspeção' (nenhuma keyword batia) e por isso aceitavam qualquer
+    # auxiliar de climatização/manutenção como apto, quando a supervisão reportou que
+    # essas duas atividades devem ser exclusivas de eletricista ("Indicar Luís/Lúcio
+    # (eletricista); teste deve ser realizado pelo eletricista do plantão"). Ambas as
+    # frases foram checadas contra os 193 planos ativos das duas unidades (HETRIN+HMB)
+    # e batem numa ocorrência só cada (o próprio plano-alvo) — "gerador" sozinho e
+    # "combate a incêndio"/"sistema de combate a incêndio" sozinhos colidem com outros
+    # planos não reportados como problema (limpeza de geradores, alarme de incêndio) e
+    # foram propositalmente NÃO usados.
+    "teste de partida", "inspeção sistema de combate a incêndio",
 ]
 _KW_HIDRO = [
     "hidrômetro", "hidráulico", "reservatório", "esgoto", "bomba de água",

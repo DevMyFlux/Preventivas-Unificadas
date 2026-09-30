@@ -85,22 +85,31 @@ def _os_abertas_payload():
     }
 
 
+def _bate_prefixo(p: str, q: str) -> bool:
+    return p == q or p.startswith(q[:3]) or q.startswith(p[:3])
+
+
 def _nomes_batem(nome_api: str, nome_planilha: str) -> bool:
+    """Confirmado com dado real (auditoria HETRIN, set/2026): a Neovero tem o
+    responsável de uma OS real cadastrado como "WILLIAN MIRANDA DE MORAIS", enquanto o
+    cadastro interno (planilha) usa "William Miranda de Moraes" — variação de grafia
+    bem comum em nomes próprios brasileiros (Willian/William, Morais/Moraes), não duas
+    pessoas diferentes. O 1º nome usava comparação EXATA (sem a mesma tolerância de
+    prefixo que os demais nomes já tinham), então esse caso real nunca batia — jamais
+    virava "Bate com atual"/"Responsável desligado", só "Sugestão diferente" genérico.
+    Agora o 1º nome usa a mesma regra de prefixo (3 letras) dos demais; a defesa
+    contra falso-positivo continua sendo a exigência de a maioria das palavras
+    baterem (matches >= max(2, 60%))."""
     def normalizar(n):
         return [p.replace(".", "").lower() for p in n.strip().split() if len(p) > 1]
     partes_api = normalizar(nome_api)
     partes_planilha = normalizar(nome_planilha)
     if not partes_api or not partes_planilha:
         return False
-    if partes_api[0] != partes_planilha[0]:
+    if not _bate_prefixo(partes_api[0], partes_planilha[0]):
         return False
-    partes_api_full = [p for p in partes_api if len(p) > 1]
-    partes_planilha_full = [p for p in partes_planilha if len(p) > 1]
-    matches = sum(1 for p in partes_planilha_full if any(
-        p == q or p.startswith(q[:3]) or q.startswith(p[:3])
-        for q in partes_api_full
-    ))
-    return matches >= max(2, len(partes_planilha_full) * 0.6)
+    matches = sum(1 for p in partes_planilha if any(_bate_prefixo(p, q) for q in partes_api))
+    return matches >= max(2, len(partes_planilha) * 0.6)
 
 
 def _carregar_dados_base(headers, d_ini=None, d_fim=None):
@@ -148,11 +157,21 @@ def _carregar_dados_base(headers, d_ini=None, d_fim=None):
     return result
 
 
-def _montar_item_os(o, colab, hist_tipo, hist_ativo, carga):
+def _montar_item_os(o, colab, colab_todos, hist_tipo, hist_ativo, carga):
     """A consulta em lote de /api/ordensservico/query já retorna tipoManutencao, setor,
     equipamento e responsavel completos — confirmado campo a campo contra o GET individual
     de detalhe (/api/ordensservico/{id}), que devolve exatamente os mesmos dados. Buscar o
-    detalhe OS por OS era uma requisição HTTP inteira e redundante por item."""
+    detalhe OS por OS era uma requisição HTTP inteira e redundante por item.
+
+    `colab_todos` (não filtrado por status="Ativo", diferente de `colab`) é usado só pra
+    checar se o responsável ATUAL de uma OS real do Neovero é alguém desligado — o
+    Neovero é só-leitura pra este backend (confirmado: nenhuma chamada POST/PUT/PATCH
+    daqui pra lá), então isso nunca reatribui a OS sozinho, só sinaliza. Sem esse check,
+    uma OS cujo responsável real foi desligado (status="Desligado" ou data_desligamento
+    já passada) aparecia como "Bate com atual" sempre que a planilha ainda não tivesse
+    sido atualizada pra refletir o desligamento — confirmado com dado real (HETRIN,
+    set/2026): 3 colaboradores desligados continuaram "batendo com atual" em OS reais
+    até o fim do mês."""
     tipo = ((o.get("tipoManutencao") or {}).get("descricao") or "").strip()
     setor = ((o.get("setor") or {}).get("nome") or "").strip()
     ativo = extrair_ativo(o)
@@ -177,8 +196,17 @@ def _montar_item_os(o, colab, hist_tipo, hist_ativo, carga):
             score = principal["score"]
             carga[recomend] += 1  # acumula carga para balancear próximas atribuições
 
+    resp_desligado = False
+    if resp_atual and colab_todos is not None and not colab_todos.empty:
+        match = colab_todos[colab_todos["funcionario"].apply(lambda n: _nomes_batem(resp_atual, n))]
+        if not match.empty:
+            linha = match.iloc[0]
+            resp_desligado = linha.get("status") == "Desligado" or not colaboradores_overlay.dentro_do_vinculo(linha, data_os)
+
     if not recomend:
         status = "Sem candidato"
+    elif resp_desligado:
+        status = "Responsavel desligado"
     elif resp_atual and _nomes_batem(resp_atual, recomend):
         status = "Bate com atual"
     elif resp_atual:
@@ -267,7 +295,7 @@ def api_recomendacoes():
             return jsonify({"erro": "Nenhuma OS encontrada no período."}), 404
 
         colab_ativos = _colab_ativos(colab)
-        resultados = [_montar_item_os(o, colab_ativos, hist_tipo, hist_ativo, carga) for o in todas]
+        resultados = [_montar_item_os(o, colab_ativos, colab, hist_tipo, hist_ativo, carga) for o in todas]
         _cache_module.set(_ck("recomendacoes"), resultados)
 
         return jsonify({
@@ -277,6 +305,7 @@ def api_recomendacoes():
             "bate_atual": sum(1 for r in resultados if r["status"] == "Bate com atual"),
             "sugestao_diff": sum(1 for r in resultados if r["status"] == "Sugestao diferente"),
             "sem_candidato": sum(1 for r in resultados if r["status"] == "Sem candidato"),
+            "responsavel_desligado": sum(1 for r in resultados if r["status"] == "Responsavel desligado"),
             "itens": resultados,
         })
     except Exception as e:
@@ -367,6 +396,8 @@ def api_colaborador(nome):
             "habilidades": list(row.get("habilidades", []) or []),
             "bloqueado": bool(row.get("bloqueado", False)),
             "aviso": row.get("aviso"),
+            "data_admissao": row.get("data_admissao"),
+            "data_desligamento": row.get("data_desligamento"),
             "os_abertas": os_abertas,
             "total_abertas": len(os_abertas),
             "total_historico": sum(tipos.values()),
@@ -573,6 +604,36 @@ def api_colaborador_status(nome):
         colaboradores_overlay.set_status(CFG.DATA_DIR, nome, status)
         invalidar_cache_colaboradores()
         return jsonify({"funcionario": nome, "status": status})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/colaborador/<path:nome>/vinculo", methods=["PATCH"])
+def api_colaborador_vinculo(nome):
+    """Data de admissão e/ou desligamento, por dia — complementa o status Ativo/
+    Desligado (que só vale pro mês inteiro). Body: {"data_admissao": "YYYY-MM-DD"|null,
+    "data_desligamento": "YYYY-MM-DD"|null} — qualquer um dos dois campos ausente no
+    body não é alterado; presente com valor null remove a data (volta a não ter
+    restrição); presente com string seta a data."""
+    try:
+        body = request.get_json(silent=True) or {}
+        se_admissao = "data_admissao" in body
+        se_desligamento = "data_desligamento" in body
+        if not se_admissao and not se_desligamento:
+            return jsonify({"erro": "informe data_admissao e/ou data_desligamento"}), 400
+        if se_admissao:
+            colaboradores_overlay.set_data_admissao(CFG.DATA_DIR, nome, body.get("data_admissao"))
+        if se_desligamento:
+            colaboradores_overlay.set_data_desligamento(CFG.DATA_DIR, nome, body.get("data_desligamento"))
+        invalidar_cache_colaboradores()
+        return jsonify({
+            "funcionario": nome,
+            "data_admissao": body.get("data_admissao") if se_admissao else None,
+            "data_desligamento": body.get("data_desligamento") if se_desligamento else None,
+        })
+    except ValueError as e:
+        return jsonify({"erro": f"data inválida — use o formato YYYY-MM-DD ({e})"}), 400
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"erro": str(e)}), 500

@@ -549,8 +549,22 @@ def esta_disponivel(row, data_os) -> bool:
     """Verifica disponibilidade: usa calendário diário se disponível, senão regime Par/Ímpar/Fixo.
     Colaborador bloqueado (ex: status "Condicionado" pendente de documentação) nunca está
     disponível, mesmo que o código do dia mostre plantão agendado — o bloqueio é sobre
-    aptidão, não sobre escala."""
+    aptidão, não sobre escala.
+
+    dentro_do_vinculo() checa admissão/desligamento por DIA (ver core/colaboradores_
+    overlay.py) — diferente do campo `status` (Ativo/Desligado), que já é aplicado
+    antes disso, na camada de rota (_colab_ativos), e vale pro mês inteiro. Um
+    colaborador desligado no MEIO do mês (ex: contrato de experiência encerrado dia
+    16) continua com código de plantão normal no calendário da planilha até o fim do
+    mês — sem esse check, esta_disponivel() nunca saberia disso e continuaria
+    recomendando a pessoa até alguém trocar a planilha do mês seguinte ou setar
+    status="Desligado" manualmente (confirmado com dado real: foi exatamente isso que
+    aconteceu na HETRIN em set/2026 — 3 colaboradores desligados continuaram sendo
+    recomendados em preventivas e em OS reais do Neovero pelo resto do mês)."""
     if row.get("bloqueado"):
+        return False
+
+    if not _overlay.dentro_do_vinculo(row, data_os):
         return False
 
     dias_plantao = row.get("dias_plantao", {})

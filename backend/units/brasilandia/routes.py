@@ -80,6 +80,8 @@ def api_colaborador(nome):
             "habilidades": list(row.get("habilidades", []) or []),
             "bloqueado": bool(row.get("bloqueado", False)),
             "aviso": row.get("aviso"),
+            "data_admissao": row.get("data_admissao"),
+            "data_desligamento": row.get("data_desligamento"),
             "os_abertas": [],
             "total_abertas": 0,
             "total_historico": 0,
@@ -274,6 +276,36 @@ def api_colaborador_status(nome):
         colaboradores_overlay.set_status(CFG.DATA_DIR, nome, status)
         invalidar_cache_colaboradores()
         return jsonify({"funcionario": nome, "status": status})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"erro": str(e)}), 500
+
+
+@bp.route("/colaborador/<path:nome>/vinculo", methods=["PATCH"])
+def api_colaborador_vinculo(nome):
+    """Data de admissão e/ou desligamento, por dia — complementa o status Ativo/
+    Desligado (que só vale pro mês inteiro). Body: {"data_admissao": "YYYY-MM-DD"|null,
+    "data_desligamento": "YYYY-MM-DD"|null} — qualquer um dos dois campos ausente no
+    body não é alterado; presente com valor null remove a data (volta a não ter
+    restrição); presente com string seta a data."""
+    try:
+        body = request.get_json(silent=True) or {}
+        se_admissao = "data_admissao" in body
+        se_desligamento = "data_desligamento" in body
+        if not se_admissao and not se_desligamento:
+            return jsonify({"erro": "informe data_admissao e/ou data_desligamento"}), 400
+        if se_admissao:
+            colaboradores_overlay.set_data_admissao(CFG.DATA_DIR, nome, body.get("data_admissao"))
+        if se_desligamento:
+            colaboradores_overlay.set_data_desligamento(CFG.DATA_DIR, nome, body.get("data_desligamento"))
+        invalidar_cache_colaboradores()
+        return jsonify({
+            "funcionario": nome,
+            "data_admissao": body.get("data_admissao") if se_admissao else None,
+            "data_desligamento": body.get("data_desligamento") if se_desligamento else None,
+        })
+    except ValueError as e:
+        return jsonify({"erro": f"data inválida — use o formato YYYY-MM-DD ({e})"}), 400
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"erro": str(e)}), 500

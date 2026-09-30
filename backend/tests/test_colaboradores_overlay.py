@@ -1,8 +1,10 @@
 """Testes da persistência de status/habilidades (core/colaboradores_overlay.py).
 Usa tmp_path para nunca tocar nos dados reais do projeto."""
 import json
+from datetime import date
 
 import pandas as pd
+import pytest
 
 from core import colaboradores_overlay as overlay
 
@@ -144,3 +146,81 @@ def test_aplicar_overlay_aviso_ausente_serializa_como_null_nao_nan(tmp_path):
     serializado = json.dumps(resultado.iloc[1].to_dict())
     assert "NaN" not in serializado
     assert '"aviso": null' in serializado
+
+
+# ── dentro_do_vinculo() / data_admissao / data_desligamento — bug real confirmado ──
+# Auditoria com dado real (HETRIN, set/2026): 3 colaboradores com contrato de
+# experiência encerrado em datas específicas dentro do mês (11, 16 e 22/09) continuaram
+# sendo recomendados em preventivas e em OS reais do Neovero até o fim do mês, porque
+# o sistema só sabia excluir alguém por MÊS inteiro (arquivo/status), nunca por DIA
+# dentro de um mês já em andamento. Essas datas resolvem isso sem inventar uma regra
+# fixa pros 3 nomes — funciona pra qualquer colaborador, de qualquer unidade.
+
+def test_dentro_do_vinculo_sem_datas_sempre_true():
+    assert overlay.dentro_do_vinculo({}, date(2026, 9, 30)) is True
+
+
+def test_dentro_do_vinculo_exclui_a_partir_da_data_de_desligamento_inclusive():
+    """Exemplo dado pela própria supervisão: desligamento em 16/09 -> elegível até
+    15/09, NÃO elegível a partir de (e incluindo) 16/09."""
+    row = {"data_desligamento": "2026-09-16"}
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 15)) is True
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 16)) is False
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 17)) is False
+
+
+def test_dentro_do_vinculo_exclui_antes_da_data_de_admissao():
+    row = {"data_admissao": "2026-09-10"}
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 9)) is False
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 10)) is True
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 11)) is True
+
+
+def test_dentro_do_vinculo_combina_admissao_e_desligamento():
+    row = {"data_admissao": "2026-09-05", "data_desligamento": "2026-09-20"}
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 4)) is False
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 10)) is True
+    assert overlay.dentro_do_vinculo(row, date(2026, 9, 20)) is False
+
+
+def test_set_data_desligamento_persiste_e_remove(tmp_path):
+    d = str(tmp_path)
+    overlay.set_data_desligamento(d, "Carlos Aurélio de Carvalho", "2026-09-11")
+    assert overlay.carregar(d)["CARLOS AURÉLIO DE CARVALHO"]["data_desligamento"] == "2026-09-11"
+    overlay.set_data_desligamento(d, "Carlos Aurélio de Carvalho", None)
+    assert "data_desligamento" not in overlay.carregar(d)["CARLOS AURÉLIO DE CARVALHO"]
+
+
+def test_set_data_admissao_persiste_e_remove(tmp_path):
+    d = str(tmp_path)
+    overlay.set_data_admissao(d, "Fulano", "2026-09-10")
+    assert overlay.carregar(d)["FULANO"]["data_admissao"] == "2026-09-10"
+    overlay.set_data_admissao(d, "Fulano", None)
+    assert "data_admissao" not in overlay.carregar(d)["FULANO"]
+
+
+def test_set_data_desligamento_formato_invalido_levanta_erro(tmp_path):
+    with pytest.raises(ValueError):
+        overlay.set_data_desligamento(str(tmp_path), "Fulano", "11/09/2026")
+
+
+def test_aplicar_overlay_expoe_datas_de_vinculo(tmp_path):
+    d = str(tmp_path)
+    overlay.set_data_desligamento(d, "Maikon Jonathas Gomes Bessa", "2026-09-16")
+
+    df = pd.DataFrame([
+        {"funcionario": "Maikon Jonathas Gomes Bessa", "cargo": "Técnico de Climatização"},
+        {"funcionario": "Outro", "cargo": "Eletricista"},
+    ])
+    resultado = overlay.aplicar_overlay(df, d)
+
+    maikon = resultado[resultado["funcionario"] == "Maikon Jonathas Gomes Bessa"].iloc[0]
+    outro = resultado[resultado["funcionario"] == "Outro"].iloc[0]
+    assert maikon["data_desligamento"] == "2026-09-16"
+    assert maikon["data_admissao"] is None
+    assert outro["data_desligamento"] is None
+    assert outro["data_admissao"] is None
+    # mesma regressão de NaN-vs-null já coberta pra "aviso" — confirma que as duas
+    # colunas novas também serializam certo
+    serializado = json.dumps(resultado.iloc[1].to_dict())
+    assert "NaN" not in serializado

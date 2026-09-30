@@ -396,6 +396,33 @@ def test_quadros_hvac_nao_aceita_mais_tecnico_climatizacao():
     assert _cargo_compativel("eletricista", categoria) is True
 
 
+# ── Teste de partida de geradores / inspeção de combate a incêndio ──────────────
+# Bug real confirmado por auditoria (HETRIN, set/2026): a supervisão reportou que
+# "PM SEMANAL - TESTE DE PARTIDA DOS GRUPOS GERADORES" e "PM – MENSAL – INSPEÇÃO
+# SISTEMA DE COMBATE A INCÊNDIO" caíam no fallback 'Inspeção' (nenhuma keyword batia)
+# e por isso aceitavam auxiliares de climatização como aptos, quando a supervisão
+# pede que sejam exclusivos de eletricista ("Indicar Luís/Lúcio (eletricista); teste
+# deve ser realizado pelo eletricista do plantão").
+
+@pytest.mark.parametrize("tipo_os", [
+    "PM SEMANAL - TESTE DE PARTIDA DOS GRUPOS GERADORES",
+    "PM – MENSAL – INSPEÇÃO SISTEMA DE COMBATE A INCÊNDIO",
+])
+def test_gerador_e_combate_incendio_exclusivos_eletricista(tipo_os):
+    categoria = classificar_categoria(tipo_os, "", "")
+    assert categoria == "Elétrica"
+    assert _cargo_compativel("eletricista", categoria) is True
+    assert _cargo_compativel("aux. manutenção / climatização", categoria) is False
+    assert _cargo_compativel("técnico de climatização", categoria) is False
+
+
+def test_limpeza_grupos_geradores_nao_regride():
+    """'teste de partida' é uma frase específica — não deve virar 'gerador' sozinho,
+    que colidiria com planos de limpeza de gerador não reportados como problema."""
+    categoria = classificar_categoria("PM - LIMPEZA GRUPOS GERADORES - NOITE - N1", "", "")
+    assert categoria != "Elétrica"
+
+
 def test_limpeza_nobreak_nao_vira_alta_so_por_causa_do_equipamento():
     """'Limpeza' é baixa complexidade por definição, mesmo perto de um nobreak —
     checado antes das keywords de equipamento (ver classificar_complexidade)."""

@@ -257,6 +257,55 @@ def test_hetrin_calendario_turno_via_separador_diurno_noturno():
     assert ciclana["turno"] == "Noturno"
 
 
+# ── esta_disponivel() respeita data de desligamento no meio do mês ──────────────
+# Bug real confirmado por auditoria (HETRIN, set/2026): 3 colaboradores com contrato
+# de experiência encerrado em datas específicas dentro do mês continuaram aparecendo
+# como disponíveis (e sendo recomendados) até o fim do mês, porque esta_disponivel()
+# só olhava o código do dia no calendário (D/F/N), nunca uma data de desligamento —
+# mesmo com código de plantão normal agendado pra depois do desligamento real.
+
+def test_hetrin_esta_disponivel_respeita_data_desligamento_no_meio_do_mes():
+    row = {
+        "cargo": "Técnico de Climatização", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {d: "P" for d in range(1, 31)},  # presente todo santo dia no calendário
+        "data_desligamento": "2026-09-16",
+    }
+    assert gm.esta_disponivel(row, date(2026, 9, 15)) is True
+    assert gm.esta_disponivel(row, date(2026, 9, 16)) is False
+    assert gm.esta_disponivel(row, date(2026, 9, 30)) is False
+
+
+def test_hetrin_esta_disponivel_sem_data_desligamento_nao_muda_nada():
+    row = {
+        "cargo": "Eletricista", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {10: "P"},
+    }
+    assert gm.esta_disponivel(row, date(2026, 9, 10)) is True
+
+
+def test_hmb_esta_disponivel_respeita_data_desligamento_no_meio_do_mes():
+    row = {
+        "cargo": "Eletricista", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {d: "D" for d in range(1, 31)},
+        "data_desligamento": "2026-09-11",
+    }
+    assert br.esta_disponivel(row, date(2026, 9, 10)) is True
+    assert br.esta_disponivel(row, date(2026, 9, 11)) is False
+    assert br.esta_disponivel(row, date(2026, 9, 30)) is False
+
+
+def test_hmb_esta_disponivel_respeita_data_admissao():
+    """Contratado no meio do mês, mas o calendário da planilha já vem preenchido
+    desde o dia 1 — sem a data de admissão, o sistema acharia disponível cedo demais."""
+    row = {
+        "cargo": "Aux. Manutenção", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {d: "D" for d in range(1, 31)},
+        "data_admissao": "2026-09-15",
+    }
+    assert br.esta_disponivel(row, date(2026, 9, 14)) is False
+    assert br.esta_disponivel(row, date(2026, 9, 15)) is True
+
+
 @pytest.mark.skipif(not _TEM_DOIS_ARQUIVOS_HMB, reason="precisa da planilha antiga e da nova lado a lado")
 def test_hmb_escolhe_formato_rico_mesmo_com_mtime_do_antigo_mais_novo():
     caminhos = [
