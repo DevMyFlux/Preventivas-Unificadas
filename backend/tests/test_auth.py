@@ -26,7 +26,7 @@ def test_login_valido_cria_sessao_com_cookie_httponly_e_samesite(client, criar_u
     chaves = set(corpo["user"]) | set(corpo)
     assert not {"password", "password_hash", "hash", "token"} & chaves
     cookie = r.headers["Set-Cookie"]
-    assert "myflux_session=" in cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
+    assert "__session=" in cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
     assert "csrf_token" in corpo
 
 
@@ -176,14 +176,14 @@ def test_senha_armazenada_com_hash_scrypt_e_token_so_como_sha256(client, criar_u
         assert user.password_hash.startswith("scrypt:") and criar_usuarios not in user.password_hash
         sess = s.scalars(select(AuthSession)).all()[-1]
         assert re.fullmatch(r"[0-9a-f]{64}", sess.token_hash)
-        cookie = client.get_cookie("myflux_session").value
+        cookie = client.get_cookie("__session").value
         assert cookie != sess.token_hash and servico.hash_token(cookie) == sess.token_hash
 
 
 def test_nenhuma_senha_ou_token_aparece_nos_logs_de_auditoria(client, criar_usuarios):
     client.post("/api/auth/login", json={"username": "ana.hmb", "password": "errada-errada1"})
     fazer_login(client, "ana.hmb", criar_usuarios)
-    token = client.get_cookie("myflux_session").value
+    token = client.get_cookie("__session").value
     csrf = client.environ_base["HTTP_X_CSRF_TOKEN"]
     with sessao() as s:
         tudo = " ".join(str(c) for linha in s.scalars(select(AuditLog)).all() for c in

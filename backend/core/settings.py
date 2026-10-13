@@ -94,7 +94,8 @@ class Settings:
     # ── Sessão / autenticação ─────────────────────────────────────────────────
     @property
     def cookie_name(self) -> str:
-        return "myflux_session"
+        # O Firebase Hosting (rewrite para o Cloud Run) descarta todos os cookies exceto "__session".
+        return "__session"
 
     @property
     def cookie_secure(self) -> bool:
