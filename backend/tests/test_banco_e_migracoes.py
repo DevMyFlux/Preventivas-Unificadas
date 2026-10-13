@@ -51,3 +51,40 @@ def test_identificador_da_instancia_sozinho_nao_e_credencial(monkeypatch):
 def test_audit_log_nao_tem_rotas_de_delecao(app):
     regras = {(r.rule, m) for r in app.url_map.iter_rules() for m in r.methods}
     assert not [x for x in regras if x[0].startswith("/api/admin/audit") and x[1] in ("DELETE", "PUT", "PATCH", "POST")]
+
+
+def test_migracao_concorrente_se_recupera_da_corrida_entre_workers(app, monkeypatch):
+    """Dois workers migrando juntos (SQLite sem trava): o perdedor leva 'table already exists' e deve repetir."""
+    from sqlalchemy.exc import OperationalError
+    chamadas = {"n": 0}
+    original = migrations._migrar_uma_vez
+
+    def corrida():
+        chamadas["n"] += 1
+        if chamadas["n"] < 3:
+            raise OperationalError("CREATE TABLE audit_log", {}, Exception("table audit_log already exists"))
+        return original()
+
+    monkeypatch.setattr(migrations, "_migrar_uma_vez", corrida)
+    monkeypatch.setattr(migrations.time, "sleep", lambda s: None)
+    assert migrations.migrar() == [] and chamadas["n"] == 3
+
+
+def test_migracoes_simultaneas_de_verdade_em_arquivo_sqlite(tmp_path):
+    """Duas threads criando o esquema no mesmo arquivo ao mesmo tempo — ambas terminam sem erro."""
+    import threading
+    arquivo = tmp_path / "corrida.db"
+    db.init_engine(f"sqlite:///{arquivo}")
+    erros = []
+
+    def rodar():
+        try:
+            migrations.migrar()
+        except Exception as e:   # noqa: BLE001
+            erros.append(e)
+
+    ts = [threading.Thread(target=rodar) for _ in range(4)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert not erros
+    assert {"users", "audit_log", "colaborador_overlay"} <= migrations.tabelas_existentes()
