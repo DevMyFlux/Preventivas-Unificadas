@@ -135,7 +135,7 @@ export default function Shell() {
 
       <aside className={`sidebar${menuAberto ? ' open' : ''}`} aria-label="Navegação principal">
         <div className="side-brand">
-          <img className="side-logo" src="/logo.jpg" alt="MyFlux" width={44} height={46} />
+          <span className="side-logo"><img src="/logo.png" alt="MyFlux" /></span>
           <div><div className="side-name">Preventivas</div><div className="side-sub">Manutenção hospitalar</div></div>
         </div>
 

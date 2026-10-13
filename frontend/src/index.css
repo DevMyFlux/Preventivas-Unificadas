@@ -129,7 +129,11 @@ h1, h2, h3 { line-height: 1.25; }
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 .side-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; }
-.side-logo { width: 44px; height: auto; border-radius: 6px; flex-shrink: 0; display: block; background: #f7f7f7; }
+.side-logo {
+  width: 44px; height: 44px; border-radius: 50%; background: #fff; border: 1px solid var(--border);
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.side-logo img { height: 28px; width: auto; display: block; }
 .side-name { color: var(--side-text-strong); font-weight: 700; font-size: 13.5px; line-height: 1.2; }
 .side-sub { font-size: 11.5px; color: var(--side-text); }
 
