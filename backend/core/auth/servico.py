@@ -25,7 +25,7 @@ from core.models import ROLE_DEV, ROLE_USER, AuditLog, AuthSession, User
 from core.settings import settings
 from core.unidades import codigo_valido
 
-_RE_USERNAME = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
+_RE_USERNAME = re.compile(r"^(?:[a-z0-9][a-z0-9._-]{2,63}|[a-z0-9._+-]{1,40}@[a-z0-9-]+(?:\.[a-z0-9-]+)+)$")   # login simples ou e-mail
 _TOUCH_MIN_SEGUNDOS = 30       # grava last_activity no máx. a cada 30 s por sessão
 _LIMITE_FALHAS_POR_IP = 20     # tentativas falhas por IP na janela abaixo
 _JANELA_IP_MINUTOS = 15
@@ -61,9 +61,9 @@ def hash_token(token: str) -> str:
 
 def validar_username(username: str) -> str:
     u = normalizar_username(username)
-    if not _RE_USERNAME.match(u):
+    if len(u) > 64 or not _RE_USERNAME.match(u):
         raise ValidacaoError(
-            "Usuário deve ter 3–64 caracteres (letras minúsculas, números, '.', '_' ou '-').", "username")
+            "Usuário deve ter 3–64 caracteres (letras minúsculas, números, '.', '_', '-' ou e-mail).", "username")
     return u
 
 

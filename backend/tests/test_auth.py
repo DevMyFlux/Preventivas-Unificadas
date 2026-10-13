@@ -301,3 +301,15 @@ def test_resposta_de_erro_interno_nao_vaza_detalhes(app):
     fazer_login(c, "erro.user", "Senha12345")
     r = c.get("/api/_teste_erro")
     assert r.status_code == 500 and "segredo-interno-xyz" not in r.get_data(as_text=True)
+
+
+def test_login_aceita_email_como_usuario(app, monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_USERNAME", "Dev@Exemplo.com")
+    monkeypatch.setenv("DEV_ADMIN_PASSWORD", "SenhaDoDev123")
+    assert "Dev criado" in servico.bootstrap_admin()
+    c = app.test_client()
+    r = c.post("/api/auth/login", json={"username": "dev@exemplo.com", "password": "SenhaDoDev123"})
+    assert r.status_code == 200 and r.get_json()["user"]["is_dev"] is True
+    for invalido in ("a b@x.com", "x@@", "<script>"):
+        with pytest.raises(servico.ValidacaoError):
+            servico.validar_username(invalido + "zz")
