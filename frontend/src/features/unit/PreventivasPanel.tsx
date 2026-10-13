@@ -1,0 +1,305 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { mensagemDeErro } from '../../shared/api/http';
+import type { UnitApiClient } from '../../shared/api/client';
+import type { PreventivasQuery, Preventiva } from '../../shared/api/types';
+import { useAsync, useDebounced } from '../../shared/hooks/useAsync';
+import DayPicker from '../../shared/ui/DayPicker';
+import { useToast } from '../../shared/ui/Toast';
+import { Alert, Button, Chip, EmptyState, KpiCard, PageHead, Pagination, TableSkeleton } from '../../shared/ui/ui';
+import { formatDateTimeBR } from '../../shared/utils/dateUtils';
+import { HINT_RESPONSAVEL, STATUS_EXECUCAO, toneDoResponsavel, toneDoStatus } from '../../shared/utils/status';
+
+interface Props {
+  client: UnitApiClient;
+  dataIni: string;
+  dataFim: string;
+  onCount?: (n: number) => void;
+  onIrParaRegras?: () => void;
+}
+
+const TURNOS = [
+  { v: '', l: 'Turno: todos' }, { v: 'Diurno', l: 'Diurno' }, { v: 'Noturno', l: 'Noturno' }, { v: '—', l: 'Não informado' },
+];
+
+export default function PreventivasPanel({ client, dataIni, dataFim, onCount, onIrParaRegras }: Props) {
+  const toast = useToast();
+  const [status, setStatus] = useState<string[]>([]);
+  const [atrasada, setAtrasada] = useState(false);
+  const [revisao, setRevisao] = useState(false);
+  const [semCandidato, setSemCandidato] = useState(false);
+  const [turno, setTurno] = useState('');
+  const [paridade, setParidade] = useState('');
+  const [dias, setDias] = useState<string[]>([]);
+  const [fIni, setFIni] = useState('');
+  const [fFim, setFFim] = useState('');
+  const [busca, setBusca] = useState('');
+  const [responsavel, setResponsavel] = useState('');
+  const [incluirAtrasadas, setIncluirAtrasadas] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+  const [exportando, setExportando] = useState(false);
+  const forcar = useRef(false);
+
+  const buscaD = useDebounced(busca);
+  const respD = useDebounced(responsavel);
+
+  // Ao mudar o período global, os filtros locais de dias deixam de fazer sentido.
+  useEffect(() => { setDias([]); setFIni(''); setFFim(''); setPage(1); }, [dataIni, dataFim]);
+
+  const query: PreventivasQuery = useMemo(() => ({
+    dataIni, dataFim, incluirAtrasadas, dias, fIni: fIni || undefined, fFim: fFim || undefined, status, atrasada,
+    turno: turno || undefined, paridade: paridade || undefined, responsavel: respD, busca: buscaD, revisao, semCandidato,
+    page, pageSize,
+  }), [dataIni, dataFim, incluirAtrasadas, dias, fIni, fFim, status, atrasada, turno, paridade, respD, buscaD, revisao, semCandidato, page, pageSize]);
+
+  const { data, loading, error, reload } = useAsync(
+    (signal) => {
+      const refresh = forcar.current;
+      forcar.current = false;
+      return client.fetchPreventivas({ ...query, refresh }, signal);
+    },
+    [client, JSON.stringify(query)],
+  );
+
+  useEffect(() => { if (data) onCount?.(data.totais_periodo.total); }, [data, onCount]);
+
+  // volta para a página 1 sempre que um filtro (não a página) muda
+  const semPagina = JSON.stringify({ ...query, page: 0 });
+  const anterior = useRef(semPagina);
+  useEffect(() => { if (anterior.current !== semPagina) { anterior.current = semPagina; setPage(1); } }, [semPagina]);
+
+  const tp = data?.totais_periodo;
+  const tf = data?.totais;
+  const filtrando = !!(status.length || atrasada || revisao || semCandidato || turno || paridade || dias.length || fIni || fFim || buscaD || respD);
+
+  const limpar = () => {
+    setStatus([]); setAtrasada(false); setRevisao(false); setSemCandidato(false); setTurno(''); setParidade('');
+    setDias([]); setFIni(''); setFFim(''); setBusca(''); setResponsavel('');
+  };
+
+  const focarKpi = (k: 'todos' | 'status' | 'atrasada' | 'revisao' | 'sem', st?: string) => {
+    limpar();
+    if (k === 'status' && st) setStatus([st]);
+    if (k === 'atrasada') setAtrasada(true);
+    if (k === 'revisao') setRevisao(true);
+    if (k === 'sem') setSemCandidato(true);
+  };
+
+  const alternarStatus = (s: string) =>
+    setStatus((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
+
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      const nome = await client.exportarPreventivas(query);
+      toast.success(`Arquivo gerado: ${nome}`);
+    } catch (e) {
+      toast.error(mensagemDeErro(e, 'Não foi possível exportar.'));
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  const atualizar = () => { forcar.current = true; reload(); };
+
+  const kpiAtivo = (k: string) => {
+    if (!filtrando) return k === 'todos';
+    if (k === 'atrasada') return atrasada && !status.length && !revisao && !semCandidato;
+    if (k === 'revisao') return revisao && !status.length && !atrasada && !semCandidato;
+    if (k === 'sem') return semCandidato && !status.length && !atrasada && !revisao;
+    return status.length === 1 && status[0] === k;
+  };
+
+  return (
+    <div className="stack">
+      <PageHead
+        title="Preventivas"
+        subtitle={data ? <>Dados de {formatDateTimeBR(data.gerado_em)} · hoje é {data.periodo.hoje.split('-').reverse().join('/')}</> : 'Ordens e previsões do período selecionado'}
+        actions={
+          <>
+            <Button icon="refresh" onClick={atualizar} loading={loading}>Atualizar</Button>
+            <Button variant="success" icon="download" onClick={exportar} loading={exportando} disabled={!data || data.total === 0}>
+              Exportar Excel
+            </Button>
+          </>
+        }
+      />
+
+      {data && data.pendencias_regras.length > 0 && (
+        <Alert
+          tone="warning"
+          action={onIrParaRegras && <Button size="sm" onClick={onIrParaRegras}>Resolver regras</Button>}
+        >
+          <b>{data.pendencias_regras.length} nome(s) em regras de atribuição precisam de confirmação.</b>{' '}
+          Enquanto isso, as ordens dessas regras ficam <i>sem candidato</i> em vez de receberem um executante escolhido ao acaso.
+        </Alert>
+      )}
+
+      <section className="kpis" aria-label="Resumo do período">
+        <KpiCard label="Total no período" value={tp?.total ?? null} tone="primary" loading={loading && !tp}
+          onClick={() => focarKpi('todos')} pressed={kpiAtivo('todos')} />
+        <KpiCard label="Concluídas" value={tp?.por_status['Concluída'] ?? null} tone="success" loading={loading && !tp}
+          onClick={() => focarKpi('status', 'Concluída')} pressed={kpiAtivo('Concluída')} />
+        <KpiCard label="Em andamento" value={tp?.por_status['Em andamento'] ?? null} tone="info" loading={loading && !tp}
+          onClick={() => focarKpi('status', 'Em andamento')} pressed={kpiAtivo('Em andamento')} />
+        <KpiCard label="Pendentes" value={tp?.por_status['Pendente'] ?? null} tone="warning" loading={loading && !tp}
+          onClick={() => focarKpi('status', 'Pendente')} pressed={kpiAtivo('Pendente')} />
+        <KpiCard label="Em atraso" value={tp?.atrasadas ?? null} tone="danger" hint="Aberta/em andamento com data anterior a hoje"
+          loading={loading && !tp} onClick={() => focarKpi('atrasada')} pressed={kpiAtivo('atrasada')} />
+        <KpiCard label="Para revisar" value={tp?.revisao ?? null} tone="warning" hint="Responsável não é um executante válido"
+          loading={loading && !tp} onClick={() => focarKpi('revisao')} pressed={kpiAtivo('revisao')} />
+        <KpiCard label="Sem candidato" value={tp?.sem_candidato ?? null} tone="purple" hint="Requer intervenção"
+          loading={loading && !tp} onClick={() => focarKpi('sem')} pressed={kpiAtivo('sem')} />
+      </section>
+
+      <section className="card stack" aria-label="Filtros">
+        <DayPicker dataIni={dataIni} dataFim={dataFim} hoje={data?.periodo.hoje ?? ''} selecionados={dias}
+          onChange={setDias} contagem={tp?.por_dia} />
+
+        <div className="row" role="group" aria-label="Filtrar por status">
+          <span className="label">Status</span>
+          {STATUS_EXECUCAO.map((s) => (
+            <button key={s.status} type="button" className="filter-chip" aria-pressed={status.includes(s.status)}
+              title={s.hint} onClick={() => alternarStatus(s.status)}>
+              {s.status}
+              {tp && <span className="muted" style={{ fontVariantNumeric: 'tabular-nums' }}>{tp.por_status[s.status] ?? 0}</span>}
+            </button>
+          ))}
+          <button type="button" className="filter-chip" aria-pressed={atrasada} onClick={() => setAtrasada((v) => !v)}
+            title="Somente ordens abertas/em andamento com data anterior a hoje">
+            Em atraso
+          </button>
+        </div>
+
+        <div className="row">
+          <div className="search-wrap" style={{ minWidth: 220, flex: '1 1 220px' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
+            <input className="input" placeholder="Buscar plano, equipamento, setor, OS…" aria-label="Busca livre" value={busca}
+              onChange={(e) => setBusca(e.target.value)} />
+          </div>
+          <input className="input" style={{ maxWidth: 210 }} placeholder="Responsável…" aria-label="Filtrar por responsável"
+            value={responsavel} onChange={(e) => setResponsavel(e.target.value)} />
+          <select className="select" style={{ maxWidth: 150 }} aria-label="Filtrar por turno" value={turno} onChange={(e) => setTurno(e.target.value)}>
+            {TURNOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+          </select>
+          <select className="select" style={{ maxWidth: 140 }} aria-label="Filtrar por tipo de dia" value={paridade} onChange={(e) => setParidade(e.target.value)}>
+            <option value="">Dia: todos</option><option value="Par">Par</option><option value="Ímpar">Ímpar</option>
+          </select>
+          <label className="row" style={{ gap: 6 }}>
+            <span className="muted">De</span>
+            <input type="date" className="input" style={{ width: 150 }} aria-label="Filtrar a partir de" min={dataIni} max={dataFim}
+              value={fIni} onChange={(e) => setFIni(e.target.value)} />
+          </label>
+          <label className="row" style={{ gap: 6 }}>
+            <span className="muted">Até</span>
+            <input type="date" className="input" style={{ width: 150 }} aria-label="Filtrar até" min={dataIni} max={dataFim}
+              value={fFim} onChange={(e) => setFFim(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <label className="check">
+            <span className="switch"><input type="checkbox" checked={incluirAtrasadas} onChange={(e) => setIncluirAtrasadas(e.target.checked)} /><span /></span>
+            Incluir ordens atrasadas de dias anteriores ao período
+          </label>
+          <span className="row">
+            {filtrando && tf && tp && <span className="muted">Mostrando {tf.total.toLocaleString('pt-BR')} de {tp.total.toLocaleString('pt-BR')}</span>}
+            <Button size="sm" variant="ghost" icon="x" onClick={limpar} disabled={!filtrando}>Limpar filtros</Button>
+          </span>
+        </div>
+      </section>
+
+      {error && <Alert tone="danger" action={<Button size="sm" onClick={reload}>Tentar de novo</Button>}>{error}</Alert>}
+
+      {loading && !data ? (
+        <TableSkeleton rows={8} cols={7} />
+      ) : data && data.itens.length === 0 ? (
+        <EmptyState icon="calendar" title="Nenhuma ocorrência encontrada"
+          action={filtrando ? <Button onClick={limpar}>Limpar filtros</Button> : undefined}>
+          {filtrando ? 'Nenhum registro atende aos filtros atuais.' : 'Não há ordens nem previsões neste período.'}
+        </EmptyState>
+      ) : data ? (
+        <>
+          <div className="table-wrap" aria-busy={loading}>
+            <table className="table">
+              <caption className="sr-only">Preventivas do período, {data.total} ocorrências</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Data</th>
+                  <th scope="col">Plano</th>
+                  <th scope="col" className="hide-md">Equipamento / Setor</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">OS</th>
+                  <th scope="col">Responsável no Neovero</th>
+                  <th scope="col">Recomendado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.itens.map((it) => <Linha key={it.id} it={it} onIrParaRegras={onIrParaRegras} />)}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={data.pagina} pageSize={data.por_pagina} total={data.total} onPage={setPage}
+            onPageSize={(n) => { setPageSize(n); setPage(1); }} />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => void }) {
+  const classe = it.atrasada ? 'row-late' : it.sem_candidato ? 'row-nocand' : it.revisao ? 'row-review' : '';
+  const nomes = it.recomendados.length ? it.recomendados : it.recomendado ? [it.recomendado] : [];
+  return (
+    <tr className={classe}>
+      <td>
+        <div className="strong">{it.data_prev}</div>
+        <div className="cell-sub">{it.dia_par}{it.turno !== '—' ? ` · ${it.turno}` : ''}</div>
+      </td>
+      <td>
+        <div className="strong cell-clip" title={it.plano}>{it.plano || '—'}</div>
+        <div className="cell-sub">{it.oficina || it.tipo}{it.origem === 'Plano' ? ' · projeção do plano' : ''}</div>
+      </td>
+      <td className="hide-md">
+        <div className="cell-clip" title={it.equipamento}>{it.equipamento}</div>
+        <div className="cell-sub cell-clip" title={it.setor}>{it.setor}</div>
+      </td>
+      <td>
+        <div className="row" style={{ gap: 4 }}>
+          <Chip tone={toneDoStatus(it.status)}>{it.status}</Chip>
+          {it.atrasada && <Chip tone="danger" dot={false}>Atrasada</Chip>}
+        </div>
+      </td>
+      <td className="mono">{it.os_vinculada !== '—' ? it.os_vinculada : <span className="muted">—</span>}</td>
+      <td>
+        {it.responsavel_atual ? (
+          <>
+            <div className="cell-clip" title={it.responsavel_atual}>{it.responsavel_atual}</div>
+            <Chip tone={toneDoResponsavel(it.responsavel_status)} title={HINT_RESPONSAVEL[it.responsavel_status]}>
+              {it.responsavel_status}
+            </Chip>
+          </>
+        ) : <span className="muted">{it.origem === 'Plano' ? 'Ainda sem OS' : 'Sem responsável'}</span>}
+      </td>
+      <td>
+        {nomes.length > 0 ? (
+          <>
+            <div className="strong">{nomes.join(' + ')}</div>
+            <div className="cell-sub">{it.cargo}{it.escala ? ` · ${it.escala}` : ''}</div>
+            {it.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>⚠ {a}</div>)}
+          </>
+        ) : it.sem_candidato ? (
+          <>
+            <Chip tone="purple">Requer intervenção</Chip>
+            <div className="cell-sub" style={{ maxWidth: 320, whiteSpace: 'normal' }}>
+              {it.motivo_sem_candidato}
+              {it.regra?.status === 'pendente' && onIrParaRegras && (
+                <> <button type="button" className="btn btn-ghost btn-sm" onClick={onIrParaRegras}>Resolver</button></>
+              )}
+            </div>
+          </>
+        ) : <span className="muted">—</span>}
+      </td>
+    </tr>
+  );
+}

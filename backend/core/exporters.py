@@ -1,4 +1,5 @@
 """Geração de Excel compartilhada (openpyxl). Usada por ambas as unidades."""
+import csv
 import io
 from datetime import datetime
 
@@ -37,12 +38,13 @@ def _titulo_row(ws, cols: list[tuple[str, int]], titulo: str):
 def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unidade: str = "") -> io.BytesIO:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Preventivas Previstas"
+    ws.title = "Preventivas"
 
     cols = [
-        ("Data Prevista", 16), ("Dia", 10), ("Em Atraso", 12), ("Plano", 40), ("Tipo", 18), ("Oficina", 18),
-        ("Equipamento", 28), ("Setor", 30), ("OS Vinculada", 14), ("Status OS", 16),
-        ("Recomendado", 30), ("Cargo", 30), ("Escala", 16),
+        ("Data", 12), ("Dia", 8), ("Turno", 10), ("Status", 14), ("Atrasada", 10), ("Plano", 42), ("Tipo", 14),
+        ("Oficina", 20), ("Equipamento", 28), ("Setor", 30), ("OS", 12), ("Responsável atual (Neovero)", 30),
+        ("Situação do responsável", 16), ("Recomendado", 32), ("Cargo", 28), ("Escala", 16), ("Revisão", 9),
+        ("Observação", 60),
     ]
 
     if d_ini and d_fim:
@@ -55,28 +57,52 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
         periodo_str = datetime.now().strftime("%d/%m/%Y %H:%M")
 
     unidade_prefix = f"{nome_unidade} — " if nome_unidade else ""
-    _titulo_row(ws, cols, f"{unidade_prefix}Preventivas Previstas — {periodo_str}")
+    _titulo_row(ws, cols, f"{unidade_prefix}Preventivas — {periodo_str}")
     _header_row(ws, cols)
 
+    cor_status = {"Concluída": "E8F5E9", "Em andamento": "E3F2FD", "Pendente": "FFFDE7", "Cancelada": "F5F5F5",
+                  "Prevista": "FFFFFF", "Sem OS gerada": "F3E5F5"}
     for i, r in enumerate(preventivas, 3):
-        has_rec = bool(r.get("recomendado"))
-        fill = PatternFill("solid", fgColor="FFEBEE" if not has_rec else "FFFFFF")
+        if r.get("atrasada"):
+            fill = PatternFill("solid", fgColor="FFCDD2")
+        elif r.get("sem_candidato"):
+            fill = PatternFill("solid", fgColor="FFEBEE")
+        else:
+            fill = PatternFill("solid", fgColor=cor_status.get(r.get("status", ""), "FFFFFF"))
+        recomendados = r.get("recomendados") or ([r["recomendado"]] if r.get("recomendado") else [])
+        if recomendados:
+            recomendado = " + ".join(recomendados)
+        elif r.get("sem_candidato"):
+            recomendado = "SEM CANDIDATO"
+        else:
+            recomendado = ""
+        obs = []
+        if r.get("motivo_sem_candidato"):
+            obs.append(r["motivo_sem_candidato"])
+        obs.extend(r.get("alertas") or [])
+        if r.get("revisao"):
+            obs.append("Revisar: responsável da OS no Neovero não é um executante válido.")
         for col, val in enumerate([
             r.get("data_prev", ""),
             r.get("dia_par", ""),
-            "Em Atraso" if r.get("atrasada") else "",
+            r.get("turno", ""),
+            r.get("status", ""),
+            "Sim" if r.get("atrasada") else "",
             r.get("plano", ""),
             r.get("tipo", ""),
             r.get("oficina", ""),
             r.get("equipamento", "—"),
             r.get("setor", "—"),
             r.get("os_vinculada", "—"),
-            r.get("os_situacao", "—"),
-            r.get("recomendado") or "SEM CANDIDATO",
+            r.get("responsavel_atual") or "",
+            r.get("responsavel_status", ""),
+            recomendado,
             r.get("cargo", ""),
             r.get("escala", ""),
+            "Sim" if r.get("revisao") else "",
+            " | ".join(obs),
         ], 1):
-            c = ws.cell(row=i, column=col, value=val)
+            c = ws.cell(row=i, column=col, value=valor_seguro(val))
             c.fill = fill
             c.alignment = Alignment(vertical="center", wrap_text=True)
             c.border = _BORDA
@@ -114,7 +140,7 @@ def gerar_excel_planos(planos: list, nome_unidade: str = "") -> io.BytesIO:
             r.get("procedimento", ""),
             "Sim" if ativo else "Não",
         ], 1):
-            c = ws.cell(row=i, column=col, value=val)
+            c = ws.cell(row=i, column=col, value=valor_seguro(val))
             c.fill = fill
             c.alignment = Alignment(vertical="center", wrap_text=True)
             c.border = _BORDA
@@ -126,52 +152,43 @@ def gerar_excel_planos(planos: list, nome_unidade: str = "") -> io.BytesIO:
     return buf
 
 
-def gerar_excel_recomendacoes(resultados: list, nome_unidade: str = "") -> io.BytesIO:
+# ── Exportação genérica (relatórios administrativos) ──────────────────────────
+
+_PREFIXOS_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
+
+def valor_seguro(valor):
+    """Neutraliza injeção de fórmula (CSV/Excel): texto que começa com = + - @ vira texto literal."""
+    if isinstance(valor, str) and valor.startswith(_PREFIXOS_FORMULA):
+        return "'" + valor
+    return valor
+
+
+def gerar_excel_tabela(titulo: str, colunas: list[tuple[str, int]], linhas: list[list], nome_aba: str = "Relatório",
+                       subtitulo: str | None = None) -> io.BytesIO:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Recomendacoes"
-
-    cols = [
-        ("Nº OS", 14), ("Data", 16), ("Turno", 14), ("Situação", 14), ("Tipo", 18),
-        ("Setor", 40), ("Ativo", 28), ("Resp. Atual", 30), ("Recomendado", 30),
-        ("Cargo", 36), ("Score", 10), ("Status", 18),
-    ]
-
-    unidade_prefix = f"{nome_unidade} — " if nome_unidade else ""
-    _titulo_row(ws, cols, f"{unidade_prefix}Recomendações — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    _header_row(ws, cols)
-
-    cor = {
-        "Bate com atual": "E8F5E9",
-        "Sugestao diferente": "FFF9C4",
-        "Sem resp. atual": "E3F2FD",
-        "Sem candidato": "FFEBEE",
-        "Responsavel desligado": "FFCDD2",
-    }
-
-    for i, r in enumerate(resultados, 3):
-        fill = PatternFill("solid", fgColor=cor.get(r.get("status", ""), "FFFFFF"))
-        for col, val in enumerate([
-            r["numero"],
-            f"{r['data_os']} {str(r['hora_os']).zfill(2)}h",
-            f"{r['turno_os']} | {r['dia_par']}",
-            r["situacao"],
-            r["tipo"],
-            r["setor"],
-            r["ativo"] or "—",
-            r["responsavel_atual"] or "—",
-            r["recomendado"] or "SEM CANDIDATO",
-            r["cargo"] or "—",
-            r["score"] if r["recomendado"] else "—",
-            r["status"],
-        ], 1):
-            c = ws.cell(row=i, column=col, value=val)
-            c.fill = fill
+    ws.title = nome_aba[:31]
+    _titulo_row(ws, colunas, titulo)
+    _header_row(ws, colunas)
+    for i, linha in enumerate(linhas, 3):
+        for col, val in enumerate(linha, 1):
+            c = ws.cell(row=i, column=col, value=valor_seguro(val))
             c.alignment = Alignment(vertical="center", wrap_text=True)
             c.border = _BORDA
-        ws.row_dimensions[i].height = 18
-
+    if subtitulo:
+        ws.cell(row=len(linhas) + 4, column=1, value=subtitulo).font = Font(italic=True, color="555555", size=9)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+def gerar_csv_tabela(colunas: list[str], linhas: list[list]) -> io.BytesIO:
+    texto = io.StringIO()
+    w = csv.writer(texto, delimiter=";", lineterminator="\r\n")
+    w.writerow(colunas)
+    for linha in linhas:
+        w.writerow([valor_seguro(v) for v in linha])
+    # BOM para o Excel abrir acentos corretamente
+    return io.BytesIO(("\ufeff" + texto.getvalue()).encode("utf-8"))

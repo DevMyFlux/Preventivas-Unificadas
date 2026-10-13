@@ -1,10 +1,10 @@
-"""Testes de units.grand_massif.routes._nomes_batem — compara o "responsável" de uma
+"""Testes de core.regras.nomes.nomes_batem (antes units.grand_massif.routes._nomes_batem) — compara o "responsável" de uma
 OS real da Neovero contra um nome da planilha interna, tolerando pequenas variações
 de grafia entre os dois cadastros (sistemas independentes, dados digitados por
 pessoas diferentes)."""
 import pytest
 
-from units.grand_massif.routes import _nomes_batem
+from core.regras.nomes import nomes_batem as _nomes_batem
 
 
 # ── Bug real: "Willian Miranda de Morais" (Neovero) x "William Miranda de Moraes"

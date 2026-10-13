@@ -15,8 +15,9 @@ from datetime import datetime
 import pandas as pd
 
 from core import colaboradores_overlay as _overlay
+from core.regras import elegibilidade as _eleg
 from core.planejamento import detectar_paridade
-from units.brasilandia.config import DATA_DIR
+from units.brasilandia.config import DATA_DIR, OVERLAY
 
 _colab_cache: dict = {"df": None, "ts": 0.0}
 _COLAB_TTL = 600  # 10 minutos
@@ -511,7 +512,9 @@ def _selecionar_aba(xl: pd.ExcelFile) -> str:
 
 def carregar_colaboradores():
     """Detecta o arquivo e formato da escala e retorna DataFrame com colaboradores. Cache 10 min."""
-    if _colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL:
+    if (_colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL
+            and _colab_cache.get("ver") in (None, OVERLAY.version())):
+        # `ver` = versão do overlay no banco: uma alteração feita em OUTRO worker invalida este cache
         return _colab_cache["df"]
 
     path = _selecionar_arquivo()
@@ -550,11 +553,12 @@ def carregar_colaboradores():
             df[col] = default
     df["aviso"] = df["aviso"].astype(object).where(df["aviso"].notna(), None)
 
-    df = _overlay.aplicar_overlay(df, DATA_DIR)
+    df = _overlay.aplicar_overlay(df, OVERLAY)
 
     print(f"[BR] colaboradores OK | {path} | aba={sheet!r} | modo={modo} | {len(df)} pessoas")
     _colab_cache["df"] = df
     _colab_cache["ts"] = time.time()
+    _colab_cache["ver"] = OVERLAY.version()
     return df
 
 
@@ -562,6 +566,7 @@ def invalidar_cache() -> None:
     """Força o próximo carregar_colaboradores() a reler o Excel + overlay do disco."""
     _colab_cache["df"] = None
     _colab_cache["ts"] = 0.0
+    _colab_cache["ver"] = None
 
 
 def esta_disponivel(row, data_os) -> bool:
@@ -574,10 +579,9 @@ def esta_disponivel(row, data_os) -> bool:
     disso na camada de rota (_colab_ativos) e só vale pro mês inteiro. Mesma exposição
     estrutural da HETRIN (confirmado por simetria de arquitetura, ver core/
     colaboradores_overlay.py::dentro_do_vinculo)."""
-    if row.get("bloqueado"):
-        return False
-
-    if not _overlay.dentro_do_vinculo(row, data_os):
+    # Elegibilidade central (core/regras/elegibilidade.py): cargo executa OS, status não
+    # Desligado, dentro do vínculo (admissão/desligamento) e não bloqueado.
+    if not _eleg.elegivel(row, data_os):
         return False
 
     dias_plantao = row.get("dias_plantao", {})

@@ -11,13 +11,13 @@ reintrodução da duplicação que causou a divergência original).
 from datetime import date
 
 from core.planejamento import expandir_ocorrencias
-from units.grand_massif.routes import _expandir_ocorrencias as expandir_gm
-from units.brasilandia.routes import _expandir_ocorrencias as expandir_br
+import core.preventivas as preventivas_mod
 
 
 def test_unidades_usam_a_mesma_implementacao():
-    assert expandir_gm is expandir_ocorrencias
-    assert expandir_br is expandir_ocorrencias
+    """As duas unidades passam por core/preventivas.py (blueprint único), que usa a função
+    compartilhada — não existe mais cópia por unidade para divergir."""
+    assert preventivas_mod.expandir_ocorrencias is expandir_ocorrencias
 
 
 def test_periodicidade_zero_nao_recorre():

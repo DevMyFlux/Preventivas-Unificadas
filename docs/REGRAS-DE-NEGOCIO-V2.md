@@ -1,0 +1,133 @@
+# Regras de negócio — V2: decisões, premissas e pendências
+
+Cada item do e-mail de feedback foi investigado **antes** de ser implementado. Esta página registra *onde a regra
+mora*, *como funcionava*, *o que foi feito* e *o que ficou como decisão do negócio*. Onde o enunciado era ambíguo,
+a escolha está explícita (e é uma constante de uma linha, quando possível).
+
+## 5.1 Colaboradores desligados (HMB)
+
+| Colaborador | Desligamento | Cargo (escala de set/2026) |
+|---|---|---|
+| Ronaldo Manoel dos Santos | 08/09/2026 | Aux. Manutenção Elétrica |
+| Caio Cezar Santos Pereira | 18/09/2026 | Eletricista |
+| Lesle Venini Izidoro dos Santos | 26/09/2026 | Técnico de Climatização (noturno) |
+
+- **Onde mora a regra:** `core/regras/elegibilidade.py` (única implementação). É chamada pelo motor
+  (`core/motor_base.indicar_responsavel` — *gate duro*), por `esta_disponivel()` das duas unidades e pelos relatórios.
+  Antes só a camada de rota filtrava `status == "Ativo"`.
+- **Convenção de data:** o **próprio dia do desligamento já é indisponível** (“a partir de 16/09 — a data do
+  desligamento — não pode ser recomendado”, convenção que a supervisão já tinha dado para a HETRIN). Se o último dia
+  trabalhado deve ser o do desligamento, basta registrar a data seguinte.
+- **Dados:** `data_desligamento` por dia (não `status` do mês inteiro, que apagaria os dias já trabalhados). Os três
+  estão na semente `data/hmb/colaboradores_overlay.json` → copiada **uma vez** para o banco (`colaborador_overlay`).
+- **Histórico preservado:** quem saiu e não consta na escala do mês seguinte vira uma linha *“Desligado — fora da
+  escala vigente”* na lista de colaboradores (nada é apagado). Isso também permite identificar OS ainda em nome deles.
+- **OS atribuídas a desligados:** tela **Revisão** (somente leitura, `GET /revisao`) lista toda OS aberta/em
+  andamento cujo responsável é desligado, gestão, genérico, bloqueado ou vazio. **Nada é reatribuído automaticamente.**
+- **Bug paralelo corrigido:** alterar um colaborador não invalidava o cache de preventivas (5 min) — a recomendação
+  antiga continuava saindo. Agora toda alteração invalida o cache e a chave de cache inclui a versão do overlay (vale
+  entre os workers do gunicorn).
+
+## 5.2 OS “em nome do gestor” — causa-raiz
+
+Evidência com a API real do Neovero (somente leitura):
+
+1. O Neovero **cria cada OS com o responsável padrão do plano** (`planoManutencao.responsavelId`). Na HMB, 57 de 120
+   planos ativos têm o gestor (*William de Souza Lobo*, Supervisor de Manutenção) como padrão: **227 de 847** preventivas
+   de 01–13/10/2026 nasceram em nome dele. Na HETRIN a gerente/engenheira (*Jaqueliny Araujo da Silva*) aparece do mesmo modo.
+   Os planos de ronda usam usuários **genéricos** (“ELÉTRICA - DIURNO”, “CLIMATIZAÇÃO - NOTURNO”).
+2. Dentro do app, havia um segundo defeito: o cargo “Supervisor de Manutenção” casava com a palavra `supervisor` da
+   lista de cargos técnicos e a categoria “Geral” aceitava **qualquer** cargo. Simulação com a escala real: o supervisor
+   recebia 45 de 45 recomendações de categoria *Inspeção* (e aparecia como “Bate com atual”, validando o erro).
+
+**Correção:** `cargo_executa_os()` — gerente, engenheiro, **supervisor**, coordenador, gestor, diretor, administrativo,
+analista **nunca** são executantes (nem como último recurso: sem executante apto o resultado é *“sem candidato”*
+sinalizado para revisão). O app nunca usa o usuário autenticado como executante (o motor não recebe identidade de
+sessão). O teste antigo que *exigia* recomendar a gestora quando era a única opção foi invertido de propósito.
+
+## 5.3 Limites diários
+
+- **Elétrica 14 / Climatização 10** por colaborador por dia (`core/regras/limites.py`), aplicados **dentro do motor**
+  como gate duro (não só na tela).
+- **Especialidade** = do **colaborador** (pelo cargo): eletricista/aux. elétrica → Elétrica; técnico/aux. de
+  climatização/refrigeração → Climatização; demais cargos não têm teto.
+- **O que conta:** OS Aberta, Em andamento e Fechada do dia (não Cancelada) + ocorrências projetadas já atribuídas.
+  Cada item tem chave única (`OS:<n>` / `PREV:<plano>:<item>:<dia>`), então **nunca conta duas vezes**. O dia é o da
+  execução, não o do processamento.
+- **Esgotado:** o motor procura outro profissional **compatível**; se não houver, devolve *sem candidato* com o motivo
+  “Limite diário … requer intervenção” — não empurra para cargo incompatível nem ultrapassa em silêncio.
+- **Decisão pendente (impacto grande):** com a regra 5.4 há **~27 rondas diurnas e ~19 noturnas por dia** (HMB) e um
+  único responsável por turno/paridade; o teto de 14 deixa ~13 rondas/dia por pessoa como “requer intervenção”. Se a
+  supervisão entender que rondas **não** consomem o limite, incluir `8` (tipo RONDA no Neovero) em
+  `TIPO_IDS_ISENTOS_LIMITE` — há teste cobrindo as duas situações.
+
+## 5.4 Rondas diárias (HMB)
+
+| Turno | Dia | Responsável informado | Situação na escala de out/2026 |
+|---|---|---|---|
+| Diurno | Ímpar | Iranildo | ✅ único (Iranildo Silva dos Santos) |
+| Noturno | Ímpar | Diego H | ❌ nenhum “Diego H” (existem Diego Reimberg e Diego Ferreira da Cunha) |
+| Diurno | Par | Michael | ❌ ambíguo (Michael de Campos Eguez / Michael Kelvin de Abreu Moraes, ambos diurno par) |
+| Noturno | Par | Diego H | ❌ idem |
+
+- Identifica a ronda diária por `tipoManutencao.id = 8` (RONDA) ou “RONDA” no nome, com periodicidade 1 dia.
+  Turno vem do nome do plano (NOTURNO/NOITE e o truncado “NOTURN” que o Neovero produz); sem marcação = diurno.
+  A **paridade é a do dia de execução** (`date.day % 2`) — vale na virada de mês (31→1, ambos ímpares).
+- **Nomes ambíguos não são escolhidos.** A linha fica *pendente*, as ordens ficam *sem candidato* com o motivo, e a tela
+  **Regras** deixa o supervisor confirmar quem é “Michael”/“Diego H” (gravado em `regra_resolucoes`, com auditoria).
+  A confirmação só aceita colaborador **ativo**, que **execute OS** e cujo primeiro nome combine com o apelido.
+- Combinação sem regra especificada → comportamento anterior preservado.
+
+## 5.5 Oficina de ar comprimido e vácuo (HMB)
+
+- Plano da oficina “AR COMPRIMIDO E VÁCUO” (qualquer periodicidade), turno **diurno**: **par → Douglas Rodrigues + Gustavo
+  Rafael; ímpar → Israel**. Noturno **não foi especificado** → sem regra (comportamento anterior).
+- Vários responsáveis: o motor devolve principal + apoio e a tela mostra os dois (“A + B”); um não sobrescreve o outro.
+  O Neovero guarda **um** responsável principal por OS — o segundo precisa de preenchimento manual (a fila avisa).
+- ⚠️ **Divergência detectada:** Douglas Rodrigues consta para dias **pares**, mas sua escala é **ímpar** → em dia par só
+  Gustavo estará disponível; a tela mostra o alerta. Precisa de confirmação do negócio.
+
+## 5.6 Preventivas: filtros por dia e atraso
+
+**Causas:** (a) a lista era só *projeção* a partir de `dataProximaPreventiva` (sempre para frente) → não havia como ver
+o que foi **concluído** ou está **pendente** em dias passados; (b) “atrasada” era `data < hoje` para *qualquer*
+ocorrência, concluída ou não; (c) `todayISO()` usava UTC (virava o dia às 21h em Brasília); (d) “Limpar filtros”
+descartava os dados carregados; (e) não havia seleção de dias.
+
+**Modelo novo** (`core/preventivas.py`): ocorrências = **OS reais do Neovero** + projeções dos planos (a projeção é
+descartada se já existe OS real para o mesmo plano/equipamento/dia — nunca duplica).
+
+| Status | Significado |
+|---|---|
+| Concluída / Em andamento / Pendente / Cancelada | situação real da OS (Fechada / Em andamento / Aberta / Cancelada) |
+| Prevista | projeção sem OS, de hoje em diante |
+| **Sem OS gerada** | projeção com data passada e sem OS — **não é atraso** (não há informação suficiente) |
+
+`atrasada = OS real não concluída (Pendente ou Em andamento) com data anterior a hoje` (fuso do Brasil). Filtros (no
+**servidor**, iguais para tela e exportação): dias não contíguos, intervalo, status (múltiplo), atraso, turno, par/ímpar,
+responsável, busca, revisão, sem candidato, origem. Totais, tabela, paginação e Excel saem do mesmo cálculo; a exportação
+**não aceita linhas do cliente**. “Incluir atrasadas de dias anteriores” (ligado por padrão) traz as OS ainda abertas
+mesmo fora do período.
+
+## 5.7 Preenchimento automático do responsável no Neovero
+
+**Viabilidade (investigada, somente leitura):** não há Swagger/documentação (`/swagger`, `/docs` → 404). `OPTIONS
+/api/ordensservico/{id}` responde `Allow: DELETE, GET, PATCH, PUT`, ou seja, atualização existe tecnicamente, mas é a
+**API interna do cliente web**, não uma integração oficial; formato do corpo, permissões da conta e efeitos colaterais
+**não foram validados** e **nenhuma escrita foi feita**. Por isso a automação é entregue em camadas seguras:
+
+1. **Fila** (sempre): OS abertas com responsável gestão/genérico/desligado/vazio + executante proposto pelo motor
+   (regras, escala, limites).
+2. **Propostas + aprovação** persistidas, **idempotentes** (chave = unidade+OS+executante+data).
+3. **Aplicação desligada por padrão** (`NEOVERO_WRITE_ENABLED=false`). Ligada, ainda roda em **simulação**
+   (`NEOVERO_WRITE_DRY_RUN=true`): valida contra o Neovero (OS existe, é da unidade, está aberta, responsável não mudou —
+   *compare-and-set* —, vaga no dia) e registra o que seria enviado. O `PATCH {"responsavelId": id}` só sai com as duas
+   chaves alteradas, lê de volta e audita antes/depois. **Antes de ligar: testar com UMA OS em ambiente seguro.**
+4. Itens **não automatizáveis** (id Neovero desconhecido/ambíguo, regra com 2 responsáveis, sem candidato) aparecem com o
+   motivo.
+
+## Premissas gerais
+
+- A escala (Excel) usada é a do **mês corrente** (comportamento original): consultar datas de outro mês usa a escala vigente.
+- Hora de execução das OS projetadas: 8h (diurno) ou 20h (plano noturno) — igual ao motor original.
+- Perfil `Dev` único; não há API para criar outro Dev.
