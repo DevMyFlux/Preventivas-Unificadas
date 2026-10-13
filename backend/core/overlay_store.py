@@ -22,6 +22,7 @@ import threading
 from typing import Protocol
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from core.db import agora_utc, sessao
 from core.models import ColaboradorOverlay
@@ -111,6 +112,12 @@ class DbStore:
             return self._semente()
 
     def update(self, chave: str, mutador, por: str | None = None):
+        try:
+            return self._update(chave, mutador, por)
+        except IntegrityError:   # semente/linha criada por outro worker no mesmo instante: repete uma vez
+            return self._update(chave, mutador, por)
+
+    def _update(self, chave: str, mutador, por: str | None = None):
         """Atualiza UMA entrada (linha) com bloqueio de linha onde o banco suporta — dois workers
         alterando colaboradores diferentes não se sobrescrevem."""
         agora = agora_utc()

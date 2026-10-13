@@ -17,6 +17,7 @@ import secrets
 from datetime import timedelta
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from core import audit
@@ -177,7 +178,10 @@ def bootstrap_admin() -> str:
     if dev_id is not None:
         encerrar_sessoes_do_usuario(dev_id, "password_changed")
         return mensagem
-    criar_usuario(u, senha, display_name="Dev", role=ROLE_DEV, criado_por="bootstrap")
+    try:
+        criar_usuario(u, senha, display_name="Dev", role=ROLE_DEV, criado_por="bootstrap")
+    except (IntegrityError, ValidacaoError):
+        return "existente (criado por outro worker na mesma subida)"
     return "Dev criado a partir das variáveis de ambiente"
 
 
