@@ -313,3 +313,19 @@ def test_login_aceita_email_como_usuario(app, monkeypatch):
     for invalido in ("a b@x.com", "x@@", "<script>"):
         with pytest.raises(servico.ValidacaoError):
             servico.validar_username(invalido + "zz")
+
+
+def test_reset_substitui_o_dev_existente_mesmo_com_usuario_diferente(app, monkeypatch):
+    """Recuperação: já existe um Dev ('dev'); as variáveis pedem outro usuário/senha + reset."""
+    from werkzeug.security import check_password_hash
+    servico.criar_usuario("dev", "SenhaAntiga123", role="dev")
+    monkeypatch.setenv("DEV_ADMIN_USERNAME", "dev@myflux.ai")
+    monkeypatch.setenv("DEV_ADMIN_PASSWORD", "Myflux2026")
+    assert "ignoradas" in servico.bootstrap_admin()          # sem reset: não altera
+    assert servico.obter_usuario_por_username("dev@myflux.ai") is None
+    monkeypatch.setenv("DEV_ADMIN_RESET_PASSWORD", "true")
+    assert "'dev' -> 'dev@myflux.ai'" in servico.bootstrap_admin()
+    novo = servico.obter_usuario_por_username("dev@myflux.ai")
+    assert novo.is_dev and check_password_hash(novo.password_hash, "Myflux2026")
+    assert servico.obter_usuario_por_username("dev") is None
+    assert app.test_client().post("/api/auth/login", json={"username": "dev@myflux.ai", "password": "Myflux2026"}).status_code == 200

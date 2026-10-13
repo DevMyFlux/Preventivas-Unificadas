@@ -141,33 +141,42 @@ def alterar_senha(user_id: int, nova_senha: str, *, forcar_troca: bool = False) 
 
 def bootstrap_admin() -> str:
     """Cria o administrador (Dev) inicial a partir de DEV_ADMIN_USERNAME/DEV_ADMIN_PASSWORD.
-    Nada fica no código-fonte. Retorna um texto curto para o log (nunca a senha)."""
+    Nada fica no código-fonte. Retorna um texto curto para o log (nunca a senha).
+
+    Com DEV_ADMIN_RESET_PASSWORD=true (recuperação): o Dev existente passa a ter o usuário e a senha
+    das variáveis — mesmo que o usuário atual dele seja outro."""
     usuario, senha = settings.dev_admin_username, settings.dev_admin_password
     if not usuario or not senha:
         return ("existente" if existe_dev() else
                 "AVISO: nenhum Dev cadastrado e DEV_ADMIN_USERNAME/DEV_ADMIN_PASSWORD não definidos — "
                 "ninguém poderá entrar até que o administrador seja configurado.")
-    u = normalizar_username(usuario)
+    u = validar_username(usuario)
+    reset = settings.dev_admin_reset
+    dev_id = None
+    mensagem = None
     with sessao() as s:
-        existente = s.scalar(select(User).where(User.username == u))
-        if existente is None and existe_dev():
-            return "existente (variáveis DEV_ADMIN_* ignoradas: já há um Dev cadastrado)"
-        if existente is not None:
-            if existente.role != ROLE_DEV:
-                return "AVISO: DEV_ADMIN_USERNAME coincide com um usuário comum; nada foi alterado."
-            if settings.dev_admin_reset:
-                existente.password_hash = hash_senha(validar_senha(senha, u))
-                existente.failed_logins = 0
-                existente.locked_until = None
-                existente.is_active = True
-                resultado = "senha do Dev redefinida (DEV_ADMIN_RESET_PASSWORD=true)"
-            else:
-                return "existente"
-        else:
-            resultado = None
-    if resultado:
-        encerrar_sessoes_do_usuario(obter_usuario_por_username(u).id, "password_changed")
-        return resultado
+        alvo = s.scalar(select(User).where(User.username == u))
+        dev_atual = s.scalar(select(User).where(User.role == ROLE_DEV))
+        if alvo is not None and alvo.role != ROLE_DEV:
+            return "AVISO: DEV_ADMIN_USERNAME coincide com um usuário comum; nada foi alterado."
+        if alvo is None and dev_atual is not None and not reset:
+            return ("existente (variáveis DEV_ADMIN_* ignoradas: já há um Dev cadastrado com outro usuário; "
+                    "use DEV_ADMIN_RESET_PASSWORD=true para substituí-lo)")
+        if alvo is not None and not reset:
+            return "existente"
+        if alvo is not None or dev_atual is not None:
+            dev = alvo or dev_atual
+            antigo = dev.username
+            validar_senha(senha, u)
+            dev.username = u
+            dev.password_hash = hash_senha(senha)
+            dev.failed_logins, dev.locked_until, dev.is_active = 0, None, True
+            dev_id = dev.id
+            mensagem = (f"Dev redefinido (DEV_ADMIN_RESET_PASSWORD=true): usuário '{antigo}' -> '{u}'"
+                        if antigo != u else "senha do Dev redefinida (DEV_ADMIN_RESET_PASSWORD=true)")
+    if dev_id is not None:
+        encerrar_sessoes_do_usuario(dev_id, "password_changed")
+        return mensagem
     criar_usuario(u, senha, display_name="Dev", role=ROLE_DEV, criado_por="bootstrap")
     return "Dev criado a partir das variáveis de ambiente"
 
