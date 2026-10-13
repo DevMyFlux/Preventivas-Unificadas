@@ -128,12 +128,8 @@ h1, h2, h3 { line-height: 1.25; }
   display: flex; flex-direction: column; gap: 2px; padding: 14px 10px;
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
-.side-brand { display: flex; align-items: center; gap: 9px; padding: 2px 8px 14px; }
-.side-mark {
-  width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; display: grid; place-items: center;
-  background: var(--primary); color: #fff; font-weight: 800; font-size: 13px; letter-spacing: -0.02em;
-}
-:root[data-theme='dark'] .side-mark { color: #0f1420; }
+.side-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; }
+.side-logo { width: 44px; height: auto; border-radius: 6px; flex-shrink: 0; display: block; background: #f7f7f7; }
 .side-name { color: var(--side-text-strong); font-weight: 700; font-size: 13.5px; line-height: 1.2; }
 .side-sub { font-size: 11.5px; color: var(--side-text); }
 
