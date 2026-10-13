@@ -1,7 +1,8 @@
 """
-Persistência leve (JSON local, um arquivo por unidade) para os atributos de
-colaborador que a aplicação edita: status (Ativo/Desligado), data de
-admissão/desligamento, bloqueio e habilidades.
+Persistência dos atributos de colaborador que a aplicação edita: status (Ativo/Desligado),
+data de admissão/desligamento, bloqueio e habilidades. Em produção fica no BANCO (tabela
+`colaborador_overlay`, ver core/overlay_store.py — durável e compartilhada entre workers);
+o JSON versionado em data/<unidade>/ é só a semente da primeira leitura.
 
 O Excel continua sendo a fonte de verdade para nome/cargo/turno/regime/escala — este
 overlay nunca escreve no Excel, só guarda o que não existe nele. Colaboradores nunca
@@ -21,42 +22,21 @@ que motivou adicionar essas duas datas: confirmado com dado real (HETRIN, set/20
 sendo recomendados em preventivas e até em OS reais no Neovero até o fim do mês, porque
 a única forma de removê-los era ou apagar a linha da planilha (só foi feito na planilha
 do mês SEGUINTE) ou chamar o PATCH de status manualmente (nunca foi chamado)."""
-import json
-import os
-import threading
 from datetime import date, datetime
 
-_lock = threading.Lock()
-
-
-def _arquivo(data_dir: str) -> str:
-    return os.path.join(data_dir, "colaboradores_overlay.json")
+from core.overlay_store import como_store
 
 
 def _chave(nome: str) -> str:
     return nome.strip().upper()
 
 
-def carregar(data_dir: str) -> dict:
-    caminho = _arquivo(data_dir)
-    if not os.path.exists(caminho):
-        return {}
-    try:
-        with open(caminho, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+def carregar(destino) -> dict:
+    """Entradas do overlay. `destino`: pasta (JSON) ou um OverlayStore (ex.: DbStore da unidade)."""
+    return como_store(destino).load()
 
 
-def _salvar(data_dir: str, dados: dict) -> None:
-    caminho = _arquivo(data_dir)
-    tmp = caminho + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=2, sort_keys=True)
-    os.replace(tmp, caminho)
-
-
-def aplicar_overlay(df, data_dir: str):
+def aplicar_overlay(df, destino):
     """Adiciona colunas 'status' e 'habilidades' ao DataFrame de colaboradores carregado
     do Excel, usando o overlay salvo. Colaborador sem entrada no overlay é Ativo, sem
     habilidades — o padrão de quem nunca foi editado pela aplicação.
@@ -67,7 +47,7 @@ def aplicar_overlay(df, data_dir: str):
     de aptidão (ex: autorização elétrica pendente) que precisa continuar bloqueando a
     recomendação. Sem entrada no overlay, mantém o que o parser já calculou (ex: o
     formato rico/12x36 já bloqueia sozinho via sua própria coluna Status)."""
-    overlay = carregar(data_dir)
+    overlay = carregar(destino)
     status_col, habilidades_col, bloqueado_col, aviso_col = [], [], [], []
     data_admissao_col, data_desligamento_col = [], []
     tem_bloqueado_no_df = "bloqueado" in df.columns
@@ -99,7 +79,52 @@ def aplicar_overlay(df, data_dir: str):
     df["aviso"] = df["aviso"].astype(object).where(df["aviso"].notna(), None)
     df["data_admissao"] = df["data_admissao"].astype(object).where(df["data_admissao"].notna(), None)
     df["data_desligamento"] = df["data_desligamento"].astype(object).where(df["data_desligamento"].notna(), None)
-    return df
+    return _acrescentar_desligados_fora_da_escala(df, overlay)
+
+
+def _acrescentar_desligados_fora_da_escala(df, overlay: dict):
+    """Colaboradores desligados deixam de constar nas escalas dos meses seguintes, mas o
+    histórico precisa continuar identificável: OS antigas ainda podem estar no nome deles
+    e a supervisão precisa vê-las para revisão. Para cada entrada do overlay com
+    `data_desligamento` (ou status "Desligado") que NÃO está na planilha carregada,
+    acrescenta uma linha "fantasma": status Desligado, sem escala, nunca elegível. Nada é
+    excluído — é o oposto de apagar o registro. Dados de exibição (nome/cargo/turno)
+    vêm da própria entrada do overlay (campos opcionais `nome`, `cargo`, `turno`)."""
+    import pandas as pd
+
+    presentes = {_chave(n) for n in df["funcionario"]}
+    novas = []
+    for chave, entry in overlay.items():
+        if chave in presentes:
+            continue
+        if not entry.get("data_desligamento") and entry.get("status") != "Desligado":
+            continue
+        novas.append({
+            "funcionario": entry.get("nome") or chave.title(),
+            "cargo": entry.get("cargo", "—"),
+            "turno": entry.get("turno", ""),
+            "regime": "—",
+            "horario": "",
+            "dias_plantao": {},
+            "status": "Desligado",
+            "habilidades": list(entry.get("habilidades", [])),
+            "bloqueado": False,
+            "aviso": "Desligado — fora da escala vigente (registro histórico).",
+            "data_admissao": entry.get("data_admissao"),
+            "data_desligamento": entry.get("data_desligamento"),
+            "fora_da_escala": True,
+        })
+    if not novas:
+        return df
+    extra = pd.DataFrame(novas)
+    if "fora_da_escala" not in df.columns:
+        df = df.assign(fora_da_escala=False)
+    saida = pd.concat([df, extra], ignore_index=True)
+    # concat promove ausências a NaN; as colunas usadas como texto/data precisam de None real
+    for col in ("aviso", "data_admissao", "data_desligamento"):
+        saida[col] = saida[col].astype(object).where(saida[col].notna(), None)
+    saida["fora_da_escala"] = saida["fora_da_escala"].fillna(False).astype(bool)
+    return saida
 
 
 def _parse_data(valor) -> date | None:
@@ -133,28 +158,23 @@ def dentro_do_vinculo(row, data_os: date) -> bool:
     return True
 
 
-def set_bloqueado(data_dir: str, nome: str, bloqueado: bool, aviso: str | None = None) -> None:
+def set_bloqueado(destino, nome: str, bloqueado: bool, aviso: str | None = None, por: str | None = None) -> None:
     """Marca (ou desmarca) um colaborador como bloqueado via overlay — pensado pra
     planilhas sem coluna de Status própria (formato calendário), onde a única forma de
     registrar uma pendência de aptidão (ex: autorização elétrica) é fora do Excel."""
-    with _lock:
-        dados = carregar(data_dir)
-        entry = dados.setdefault(_chave(nome), {})
+    def mutar(entry: dict) -> None:
         entry["bloqueado"] = bloqueado
         if bloqueado and aviso:
             entry["aviso"] = aviso
         elif not bloqueado:
             entry.pop("aviso", None)
-        _salvar(data_dir, dados)
+    como_store(destino).update(_chave(nome), mutar, por)
 
 
-def set_status(data_dir: str, nome: str, status: str) -> None:
+def set_status(destino, nome: str, status: str, por: str | None = None) -> None:
     if status not in ("Ativo", "Desligado"):
         raise ValueError("status inválido — use 'Ativo' ou 'Desligado'")
-    with _lock:
-        dados = carregar(data_dir)
-        dados.setdefault(_chave(nome), {})["status"] = status
-        _salvar(data_dir, dados)
+    como_store(destino).update(_chave(nome), lambda e: e.__setitem__("status", status), por)
 
 
 def _validar_data(data: str | None) -> None:
@@ -162,58 +182,46 @@ def _validar_data(data: str | None) -> None:
         _parse_data(data)  # levanta ValueError se o formato não for YYYY-MM-DD
 
 
-def set_data_desligamento(data_dir: str, nome: str, data: str | None) -> None:
+def _definir_data(destino, nome: str, campo: str, data: str | None, por: str | None) -> None:
+    _validar_data(data)
+
+    def mutar(entry: dict) -> None:
+        if data:
+            entry[campo] = data
+        else:
+            entry.pop(campo, None)
+    como_store(destino).update(_chave(nome), mutar, por)
+
+
+def set_data_desligamento(destino, nome: str, data: str | None, por: str | None = None) -> None:
     """`data` no formato "YYYY-MM-DD", ou None pra remover a data (volta a não ter
     restrição). A PARTIR dessa data (inclusive — o próprio dia do desligamento já
     conta), dentro_do_vinculo() passa a retornar False pra esse colaborador — ver
-    docstring da função. Isso é independente do campo `status`: dá pra desligar
-    alguém no meio do mês sem editar a
-    planilha nem esperar a virada de mês, e sem precisar também marcar
-    status="Desligado" (embora as duas coisas possam ser usadas juntas)."""
-    _validar_data(data)
-    with _lock:
-        dados = carregar(data_dir)
-        entry = dados.setdefault(_chave(nome), {})
-        if data:
-            entry["data_desligamento"] = data
-        else:
-            entry.pop("data_desligamento", None)
-        _salvar(data_dir, dados)
+    docstring da função. Independe do campo `status`: dá pra desligar alguém no meio do mês
+    sem editar a planilha nem esperar a virada de mês, e sem marcar status="Desligado"."""
+    _definir_data(destino, nome, "data_desligamento", data, por)
 
 
-def set_data_admissao(data_dir: str, nome: str, data: str | None) -> None:
+def set_data_admissao(destino, nome: str, data: str | None, por: str | None = None) -> None:
     """Mesma ideia de set_data_desligamento(), pro outro lado: ANTES dessa data,
     dentro_do_vinculo() retorna False — cobre o caso de alguém contratado no meio do
-    mês cujo calendário da planilha já vem preenchido desde o dia 1 (o que sozinho
-    faria o sistema achar a pessoa disponível antes mesmo dela começar)."""
-    _validar_data(data)
-    with _lock:
-        dados = carregar(data_dir)
-        entry = dados.setdefault(_chave(nome), {})
-        if data:
-            entry["data_admissao"] = data
-        else:
-            entry.pop("data_admissao", None)
-        _salvar(data_dir, dados)
+    mês cujo calendário da planilha já vem preenchido desde o dia 1."""
+    _definir_data(destino, nome, "data_admissao", data, por)
 
 
-def adicionar_habilidade(data_dir: str, nome: str, habilidade_id: str) -> list:
-    with _lock:
-        dados = carregar(data_dir)
-        entry = dados.setdefault(_chave(nome), {})
+def adicionar_habilidade(destino, nome: str, habilidade_id: str, por: str | None = None) -> list:
+    def mutar(entry: dict) -> list:
         habilidades = entry.setdefault("habilidades", [])
         if habilidade_id not in habilidades:
             habilidades.append(habilidade_id)
-        _salvar(data_dir, dados)
-        return habilidades
+        return list(habilidades)
+    return como_store(destino).update(_chave(nome), mutar, por)
 
 
-def remover_habilidade(data_dir: str, nome: str, habilidade_id: str) -> list:
-    with _lock:
-        dados = carregar(data_dir)
-        entry = dados.setdefault(_chave(nome), {})
+def remover_habilidade(destino, nome: str, habilidade_id: str, por: str | None = None) -> list:
+    def mutar(entry: dict) -> list:
         habilidades = entry.setdefault("habilidades", [])
         if habilidade_id in habilidades:
             habilidades.remove(habilidade_id)
-        _salvar(data_dir, dados)
-        return habilidades
+        return list(habilidades)
+    return como_store(destino).update(_chave(nome), mutar, por)

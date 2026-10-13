@@ -4,6 +4,9 @@ Cada unidade implementa sua própria função `esta_disponivel` e `carregar_cola
 """
 import re
 
+from core.regras import elegibilidade as _eleg
+from core.regras import limites as _limites
+
 # ── Pesos e constantes ────────────────────────────────────────────────────────
 SCORE_FUNCAO_COMPATIVEL = 100
 SCORE_FUNCAO_SECUNDARIA = 50
@@ -437,6 +440,9 @@ def indicar_responsavel(
     andares_colaborador: dict | None = None,
     carga_alta: dict | None = None,
     nomes_permitidos=None,
+    ocupacao=None,
+    nomes_obrigatorios=None,
+    diagnostico: dict | None = None,
 ):
     """
     Calcula o responsável recomendado para uma tarefa.
@@ -498,12 +504,33 @@ def indicar_responsavel(
     (ex: coleta diária de medidor/hidrômetro na HETRIN — ver
     units/grand_massif/escala_nomeada.py); segue a mesma filosofia soft dos outros
     gates (só restringe se o resultado não ficar vazio).
+
+    `ocupacao` (opcional): `core.regras.limites.OcupacaoDiaria` — controle de quantas
+    ordens cada colaborador já tem NAQUELE dia (`data_ref`). Quando informado, quem já
+    atingiu o limite diário da sua especialidade (Elétrica 14, Climatização 10) é
+    EXCLUÍDO de forma dura: nenhum gate "soft" o reabilita e, se o limite esvaziar o
+    conjunto de candidatos compatíveis, a função devolve `None` (sem candidato) e
+    `diagnostico["motivo"] = "limite_diario"` em vez de empurrar a ordem para alguém
+    tecnicamente incompatível ou ultrapassar o teto em silêncio.
+
+    `nomes_obrigatorios` (opcional): conjunto de nomes que a regra de negócio EXIGE para
+    esta ocorrência (ronda diária, oficina de ar comprimido…). Diferente de
+    `nomes_permitidos` (preferência soft), aqui é estrito: só concorre quem estiver
+    na lista E elegível/disponível/com vaga no dia; se ninguém restar, devolve `None` com
+    `diagnostico["motivo"]` explicando (indisponível ou limite diário).
+
+    `diagnostico` (opcional): dict mutável preenchido com `motivo` quando não há
+    candidato — `sem_colaboradores`, `nenhum_elegivel`, `nenhum_compativel_disponivel`,
+    `limite_diario`, `regra_nominal_indisponivel`, `regra_nominal_limite_diario`.
     """
+    diagnostico = diagnostico if diagnostico is not None else {}
     if colaboradores is None or colaboradores.empty:
+        diagnostico["motivo"] = "sem_colaboradores"
         return None, None, {}
 
     if esta_disponivel_fn is None:
-        esta_disponivel_fn = lambda row, data: True
+        def esta_disponivel_fn(row, data):
+            return True
 
     categoria = classificar_categoria(tipo, setor, ativo)
     complexidade = classificar_complexidade(tipo, setor, ativo)
@@ -518,7 +545,11 @@ def indicar_responsavel(
         turno_col = str(row.get("turno", ""))
         regime = str(row.get("regime", ""))
         habilidades = row.get("habilidades", []) or []
-        disp = esta_disponivel_fn(row, data_ref)
+        # Elegibilidade central (cargo executa OS, não desligado, dentro do vínculo, não
+        # bloqueado) vale SEMPRE, mesmo que a função de disponibilidade da unidade não a
+        # aplique — a regra não pode depender de quem chama o motor.
+        elegivel = _eleg.motivo_inelegibilidade(row, data_ref) is None
+        disp = elegivel and esta_disponivel_fn(row, data_ref)
         mesmo_andar = bool(andar) and andar in andares_colaborador.get(nome, set())
         s = calcular_score(
             cargo,
@@ -550,6 +581,10 @@ def indicar_responsavel(
             "funcao_compativel": _cargo_compativel(cargo.lower(), categoria),
             "turno_compativel": _turno_compativel(turno_col, hora_ref),
             "tier_adequado": _tier_adequado(complexidade) in (None, _tier_cargo(cargo.lower())),
+            "especialidade": _limites.especialidade_do_cargo(cargo),
+            "ocupacao_dia": ocupacao.total(nome, data_ref) if ocupacao is not None else None,
+            "limite_dia": _limites.limite_do_cargo(cargo),
+            "com_vaga": ocupacao.tem_vaga(nome, cargo, data_ref) if ocupacao is not None else True,
         }
 
     # -999 é o sentinel exclusivo de "indisponível" (retornado por calcular_score quando
@@ -558,7 +593,25 @@ def indicar_responsavel(
     # cair abaixo de -999 — usar isso como filtro excluía gente apta por engano.
     disponiveis = {n: s for n, s in scores.items() if s["disponivel"]}
     if not disponiveis:
+        diagnostico["motivo"] = "nenhum_elegivel"
         return None, None, scores
+
+    # Regra nominal ESTRITA (ronda diária, oficina de ar comprimido…): só concorre quem a
+    # regra nomeia. Sem fallback — se ninguém restar, é "sem candidato" com motivo.
+    if nomes_obrigatorios is not None:
+        da_regra = {n: s for n, s in disponiveis.items() if n in nomes_obrigatorios}
+        if not da_regra:
+            diagnostico["motivo"] = "regra_nominal_indisponivel"
+            return None, None, scores
+        com_vaga_regra = {n: s for n, s in da_regra.items() if s["com_vaga"]}
+        if not com_vaga_regra:
+            diagnostico["motivo"] = "regra_nominal_limite_diario"
+            return None, None, scores
+        disponiveis = com_vaga_regra
+        ordenados = sorted(disponiveis, key=lambda n: (disponiveis[n]["score"], -disponiveis[n]["carga"]), reverse=True)
+        principal = {"nome": ordenados[0], **disponiveis[ordenados[0]]}
+        apoio = {"nome": ordenados[1], **disponiveis[ordenados[1]]} if len(ordenados) > 1 else None
+        return principal, apoio, scores
 
     # Balanceamento nunca pode fazer alguém tecnicamente inadequado ganhar de alguém
     # qualificado. Sem isso, penalidade de carga sem teto podia empatar (ou até
@@ -571,6 +624,16 @@ def indicar_responsavel(
     compativeis = {n: s for n, s in disponiveis.items() if s["funcao_compativel"]}
     if compativeis:
         disponiveis = compativeis
+
+    # Limite diário por especialidade — gate DURO. Se existiam candidatos compatíveis e o
+    # limite os esgotou, NÃO recua para incompatíveis nem ultrapassa o teto: sinaliza
+    # que a distribuição precisa de intervenção humana.
+    if ocupacao is not None:
+        com_vaga = {n: s for n, s in disponiveis.items() if s["com_vaga"]}
+        if not com_vaga:
+            diagnostico["motivo"] = "limite_diario"
+            return None, None, scores
+        disponiveis = com_vaga
 
     # Mesmo raciocínio, agora pro turno: sem isso, a penalidade de carga acumulada
     # (sem teto) podia fazer alguém do turno errado "ganhar" de alguém do turno certo

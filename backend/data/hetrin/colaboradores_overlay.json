@@ -1,10 +1,12 @@
 {
   "CARLOS AURÉLIO DE CARVALHO": {
     "data_desligamento": "2026-09-11",
+    "nome": "Carlos Aurélio de Carvalho",
     "status": "Desligado"
   },
   "MAIKON JONATHAS GOMES BESSA": {
     "data_desligamento": "2026-09-16",
+    "nome": "Maikon Jonathas Gomes Bessa",
     "status": "Desligado"
   },
   "WELLINGTON DE SOUZA BRITO": {
@@ -13,6 +15,7 @@
   },
   "WILLIAM MIRANDA DE MORAES": {
     "data_desligamento": "2026-09-22",
+    "nome": "William Miranda de Moraes",
     "status": "Desligado"
   }
 }

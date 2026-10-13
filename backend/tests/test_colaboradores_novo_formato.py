@@ -8,7 +8,7 @@ dados reais das planilhas — não só casos sintéticos. Cobre especificamente:
 - isolamento entre unidades (nenhum nome se repete entre as duas planilhas).
 """
 import os
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import pytest
@@ -25,6 +25,26 @@ HMB_DISPONIVEL = os.path.exists(br.DATA_DIR) and any(
 
 pytestmark_hetrin = pytest.mark.skipif(not HETRIN_DISPONIVEL, reason="planilha real da Hetrin não presente neste ambiente")
 pytestmark_hmb = pytest.mark.skipif(not HMB_DISPONIVEL, reason="planilha real da HMB não presente neste ambiente")
+
+
+class _SetembroCongelado(datetime):
+    """Estes testes validam dados REAIS da escala de setembro/2026. O loader escolhe o arquivo
+    pelo mês corrente; sem congelar o relógio, os testes passavam a validar outro mês (e
+    quebraram quando a escala de outubro entrou — a migração de out/2026 não os atualizou)."""
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 9, 15, 12, 0)
+
+
+@pytest.fixture(autouse=True)
+def _mes_de_referencia_setembro(monkeypatch):
+    monkeypatch.setattr(gm, "datetime", _SetembroCongelado)
+    monkeypatch.setattr(br, "datetime", _SetembroCongelado)
+    gm.invalidar_cache()
+    br.invalidar_cache()
+    yield
+    gm.invalidar_cache()
+    br.invalidar_cache()
 
 
 @pytest.fixture

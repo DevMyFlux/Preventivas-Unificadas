@@ -16,3 +16,17 @@ venv
 
 .DS_Store
 Thumbs.db
+
+# V2: nada de segredos, bancos locais ou ferramentas de desenvolvimento na imagem
+.env
+**/.env
+**/.env.*
+!**/.env.example
+**/*.db
+**/*.db-*
+backend/tests
+backend/pytest.ini
+backend/ruff.toml
+backend/requirements-dev.txt
+docs
+README.md

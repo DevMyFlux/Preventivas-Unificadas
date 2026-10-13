@@ -1,9 +1,27 @@
 {
+  "CAIO CEZAR SANTOS PEREIRA": {
+    "cargo": "Eletricista",
+    "data_desligamento": "2026-09-18",
+    "nome": "Caio Cezar Santos Pereira",
+    "turno": "Diurno"
+  },
   "DOUGLAS DOS SANTOS VIEIRA": {
     "bloqueado": false
   },
+  "LESLE VENINI IZIDORO DOS SANTOS": {
+    "cargo": "Técnico de Climatização",
+    "data_desligamento": "2026-09-26",
+    "nome": "Lesle Venini Izidoro dos Santos",
+    "turno": "Noturno"
+  },
   "MATHEUS ANDRADE DE SOUSA": {
     "bloqueado": false
+  },
+  "RONALDO MANOEL DOS SANTOS": {
+    "cargo": "Aux. Manutenção Elétrica",
+    "data_desligamento": "2026-09-08",
+    "nome": "Ronaldo Manoel dos Santos",
+    "turno": "Diurno"
   },
   "UELTON NASCIMENTO SILVA": {
     "aviso": "Bloqueado — observação da escala: Cobertura excepcional/condicionada de folguista Aux. Elétrica.",

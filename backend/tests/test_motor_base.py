@@ -264,12 +264,30 @@ def test_balanceamento_nao_supera_incompatibilidade_de_cargo():
     assert scores["Eletricista Sobrecarregado"]["funcao_compativel"] is True
 
 
-def test_ninguem_compativel_ainda_assim_recomenda_alguem():
-    """Sem candidato compatível nenhum, o motor deve preferir indicar o melhor
-    disponível a devolver 'sem candidato' — só não pode preferir o incompatível
-    quando existe opção melhor (coberto pelo teste acima)."""
+def test_cargo_de_gestao_nunca_e_recomendado_nem_como_ultimo_recurso():
+    """V2 (causa-raiz de "ordens em nome do gestor"): antes, se só restasse cargo de
+    gestão, o motor ainda o indicava ("prefere indicar alguém a nada"). Agora gestão/
+    administrativo NÃO executa OS — sem executante apto, o resultado é "sem candidato"
+    (sinalizado para revisão), nunca um nome arbitrário."""
     colab = pd.DataFrame([
         {"funcionario": "Gestora", "cargo": "Gestora Local / Engenheira", "turno": "Administrativo", "regime": "Fixo"},
+    ])
+    diag = {}
+    principal, _, scores = indicar_responsavel(
+        colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
+        tipo="Manutenção elétrica", setor="Recepção", ativo="Quadro elétrico",
+        data_ref=date(2026, 9, 10), hora_ref=10, diagnostico=diag,
+    )
+    assert principal is None
+    assert diag["motivo"] == "nenhum_elegivel"
+    assert scores["Gestora"]["disponivel"] is False
+
+
+def test_ninguem_tecnicamente_compativel_ainda_recomenda_executante_disponivel():
+    """Preserva a filosofia antiga para EXECUTANTES: sem cargo compatível com a categoria,
+    ainda indica o melhor executante disponível em vez de 'sem candidato'."""
+    colab = pd.DataFrame([
+        {"funcionario": "Encanador Disponível", "cargo": "Encanador", "turno": "Diurno", "regime": "Fixo"},
     ])
     principal, _, _ = indicar_responsavel(
         colaboradores=colab, hist_tipo={}, hist_ativo={}, carga={},
@@ -277,7 +295,7 @@ def test_ninguem_compativel_ainda_assim_recomenda_alguem():
         data_ref=date(2026, 9, 10), hora_ref=10,
     )
     assert principal is not None
-    assert principal["nome"] == "Gestora"
+    assert principal["nome"] == "Encanador Disponível"
 
 
 # ── exigir_turno — bug real reportado na HETRIN ──────────────────────────────────

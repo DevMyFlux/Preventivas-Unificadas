@@ -18,7 +18,8 @@ from datetime import datetime
 import pandas as pd
 
 from core import colaboradores_overlay as _overlay
-from units.grand_massif.config import DATA_DIR
+from core.regras import elegibilidade as _eleg
+from units.grand_massif.config import DATA_DIR, OVERLAY
 
 _colab_cache: dict = {"df": None, "ts": 0.0}
 _COLAB_TTL = 600  # 10 minutos
@@ -487,7 +488,9 @@ def _selecionar_aba(xl: pd.ExcelFile, caminho: str = "") -> str:
 
 def carregar_colaboradores():
     """Carrega colaboradores. Prioriza Escala_*.xlsx (calendário) sobre colaboradores*.xlsx. Cache 10 min."""
-    if _colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL:
+    if (_colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL
+            and _colab_cache.get("ver") in (None, OVERLAY.version())):
+        # `ver` = versão do overlay no banco: uma alteração feita em OUTRO worker invalida este cache
         return _colab_cache["df"]
 
     arquivo = _selecionar_arquivo()
@@ -531,11 +534,12 @@ def carregar_colaboradores():
         print(f"[GM] ERRO: nenhuma linha válida | {arquivo} | aba={sheet!r}")
         return None
 
-    df = _overlay.aplicar_overlay(df, DATA_DIR)
+    df = _overlay.aplicar_overlay(df, OVERLAY)
 
     print(f"[GM] colaboradores OK | {arquivo} | aba={sheet!r} | modo={modo} | {len(df)} pessoas")
     _colab_cache["df"] = df
     _colab_cache["ts"] = time.time()
+    _colab_cache["ver"] = OVERLAY.version()
     return df
 
 
@@ -543,6 +547,7 @@ def invalidar_cache() -> None:
     """Força o próximo carregar_colaboradores() a reler o Excel + overlay do disco."""
     _colab_cache["df"] = None
     _colab_cache["ts"] = 0.0
+    _colab_cache["ver"] = None
 
 
 def esta_disponivel(row, data_os) -> bool:
@@ -561,10 +566,9 @@ def esta_disponivel(row, data_os) -> bool:
     status="Desligado" manualmente (confirmado com dado real: foi exatamente isso que
     aconteceu na HETRIN em set/2026 — 3 colaboradores desligados continuaram sendo
     recomendados em preventivas e em OS reais do Neovero pelo resto do mês)."""
-    if row.get("bloqueado"):
-        return False
-
-    if not _overlay.dentro_do_vinculo(row, data_os):
+    # Elegibilidade central (core/regras/elegibilidade.py): cargo executa OS, status não
+    # Desligado, dentro do vínculo (admissão/desligamento) e não bloqueado.
+    if not _eleg.elegivel(row, data_os):
         return False
 
     dias_plantao = row.get("dias_plantao", {})
