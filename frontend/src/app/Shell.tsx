@@ -49,7 +49,7 @@ function useTema(): [string, () => void] {
       const salvo = localStorage.getItem('myflux-tema');
       if (salvo) return salvo;
     } catch { /* storage indisponível: usa a preferência do sistema */ }
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return 'light';   // padrão claro; a escolha do usuário fica salva
   });
   useEffect(() => {
     document.documentElement.dataset.theme = tema;
@@ -134,9 +134,9 @@ export default function Shell() {
       {menuAberto && <div className="scrim" onClick={() => setMenuAberto(false)} aria-hidden="true" />}
 
       <aside className={`sidebar${menuAberto ? ' open' : ''}`} aria-label="Navegação principal">
-        <div className="brand">
-          <div className="brand-mark"><Icon name="wrench" size={19} /></div>
-          <div><div className="brand-name">MyFlux Preventivas</div><div className="brand-sub">Manutenção hospitalar · V2</div></div>
+        <div className="side-brand">
+          <div className="side-mark" aria-hidden="true">MF</div>
+          <div><div className="side-name">MyFlux Preventivas</div><div className="side-sub">Manutenção hospitalar</div></div>
         </div>
 
         <div className="side-label">{unidades.length > 1 ? 'Unidade' : 'Sua unidade'}</div>
@@ -192,17 +192,17 @@ export default function Shell() {
         <header className="topbar">
           <Button className="menu-btn" variant="ghost" icon="menu" aria-label="Abrir menu" onClick={() => setMenuAberto(true)} />
           <h1>{proibida ? '' : TITULOS[rota.pagina]}</h1>
-          {rota.tipo === 'unidade' && unidadeAtual && <span className="chip c-neutral"><span className="unit-dot" style={{ background: COR_UNIDADE[unidadeAtual.codigo] }} />{unidadeAtual.nome}</span>}
+          {rota.tipo === 'unidade' && unidadeAtual && <span className="muted">{unidadeAtual.nome}</span>}
           <span className="grow" />
           {mostraPeriodo && (
             <form className="row" onSubmit={(e) => { e.preventDefault(); aplicar(inicio, fim); }} aria-label="Período">
-              <input type="date" className="input" style={{ width: 142 }} aria-label="Data inicial" value={inicio} onChange={(e) => setInicio(e.target.value)} />
+              <input type="date" className="input" style={{ width: 138 }} aria-label="Data inicial" value={inicio} onChange={(e) => setInicio(e.target.value)} />
               <span className="muted">a</span>
-              <input type="date" className="input" style={{ width: 142 }} aria-label="Data final" value={fim} onChange={(e) => setFim(e.target.value)} />
-              <Button variant="primary" type="submit">Aplicar</Button>
-              <Button type="button" onClick={() => preset(hoje, hoje)}>Hoje</Button>
-              <Button type="button" onClick={() => preset(addDays(hoje, -6), hoje)}>7 dias</Button>
-              <Button type="button" onClick={() => preset(firstOfMonth(hoje), lastOfMonth(hoje))}>Mês</Button>
+              <input type="date" className="input" style={{ width: 138 }} aria-label="Data final" value={fim} onChange={(e) => setFim(e.target.value)} />
+              <Button variant="primary" size="sm" type="submit">Aplicar</Button>
+              <Button type="button" size="sm" onClick={() => preset(hoje, hoje)}>Hoje</Button>
+              <Button type="button" size="sm" onClick={() => preset(addDays(hoje, -6), hoje)}>7 dias</Button>
+              <Button type="button" size="sm" onClick={() => preset(firstOfMonth(hoje), lastOfMonth(hoje))}>Mês</Button>
               {erroPeriodo && <span role="alert" style={{ color: 'var(--danger-text)', fontWeight: 600, fontSize: 12.5 }}>{erroPeriodo}</span>}
             </form>
           )}

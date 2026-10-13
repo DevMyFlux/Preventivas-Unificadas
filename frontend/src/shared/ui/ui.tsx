@@ -1,6 +1,5 @@
 /* Componentes de interface compartilhados — pequenos, sem dependências, acessíveis. */
-import { useEffect, useRef, useState } from 'react';
-import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import Icon from './Icon';
 import type { IconName } from './Icon';
 import type { Tone } from '../utils/status';
@@ -33,9 +32,9 @@ export function Button({ variant = 'secondary', size = 'md', icon, loading, chil
 
 // ── Chip de status ───────────────────────────────────────────────────────────
 
-export function Chip({ tone = 'neutral', children, title, dot = true }: { tone?: Tone; children: ReactNode; title?: string; dot?: boolean }) {
+export function Chip({ tone = 'neutral', children, title }: { tone?: Tone; children: ReactNode; title?: string; dot?: boolean }) {
   return (
-    <span className={`chip c-${tone}${dot ? '' : ' nodot'}`} title={title}>
+    <span className={`chip c-${tone}`} title={title}>
       {children}
     </span>
   );
@@ -101,37 +100,7 @@ export function EmptyState({ icon = 'inbox', title, children, action }: { icon?:
   );
 }
 
-// ── KPI com contagem animada e "spotlight" ao passar o mouse ────────────────
-
-/** Anima até `value` — respeita prefers-reduced-motion e abas em segundo plano (vai direto ao valor).
- * Um temporizador garante o valor final mesmo se o navegador pausar requestAnimationFrame. */
-export function useCountUp(value: number, ms = 600): number {
-  const [shown, setShown] = useState(value);
-  const prev = useRef(value);
-  useEffect(() => {
-    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const oculto = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-    if (reduce || oculto || prev.current === value || typeof requestAnimationFrame === 'undefined') {
-      prev.current = value;
-      setShown(value);
-      return;
-    }
-    const from = prev.current;
-    const t0 = performance.now();
-    let raf = 0;
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - t0) / ms);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setShown(Math.round(from + (value - from) * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    const garantia = window.setTimeout(() => setShown(value), ms + 150);
-    prev.current = value;
-    return () => { cancelAnimationFrame(raf); window.clearTimeout(garantia); };
-  }, [value, ms]);
-  return shown;
-}
+// ── Indicador (faixa de números; clicável quando filtra a tela) ─────────────
 
 interface KpiProps {
   label: string;
@@ -144,21 +113,14 @@ interface KpiProps {
 }
 
 export function KpiCard({ label, value, tone = 'primary', hint, onClick, pressed, loading }: KpiProps) {
-  const animated = useCountUp(value ?? 0);
   const Tag = onClick ? 'button' : 'div';
-  const move = (e: MouseEvent<HTMLElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    e.currentTarget.style.setProperty('--spot-x', `${e.clientX - r.left}px`);
-    e.currentTarget.style.setProperty('--spot-y', `${e.clientY - r.top}px`);
-  };
   return (
     <Tag
       className={`kpi t-${tone}`}
-      onMouseMove={move}
       {...(onClick ? { onClick, type: 'button' as const, 'aria-pressed': !!pressed } : {})}
     >
-      <div className="kpi-label"><span className="kpi-dot" aria-hidden="true" />{label}</div>
-      <div className="kpi-value">{loading || value === null ? <Skeleton width={60} height={28} /> : animated.toLocaleString('pt-BR')}</div>
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-value">{loading || value === null ? <Skeleton width={48} height={22} /> : value.toLocaleString('pt-BR')}</div>
       {hint && <div className="kpi-hint">{hint}</div>}
     </Tag>
   );

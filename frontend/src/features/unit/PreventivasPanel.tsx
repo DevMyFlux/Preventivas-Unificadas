@@ -152,7 +152,7 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
           loading={loading && !tp} onClick={() => focarKpi('sem')} pressed={kpiAtivo('sem')} />
       </section>
 
-      <section className="card stack" aria-label="Filtros">
+      <section className="filters" aria-label="Filtros">
         <DayPicker dataIni={dataIni} dataFim={dataFim} hoje={data?.periodo.hoje ?? ''} selecionados={dias}
           onChange={setDias} contagem={tp?.por_dia} />
 
@@ -265,7 +265,7 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
         <div className="cell-sub cell-clip" title={it.setor}>{it.setor}</div>
       </td>
       <td>
-        <div className="row" style={{ gap: 4 }}>
+        <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
           <Chip tone={toneDoStatus(it.status)}>{it.status}</Chip>
           {it.atrasada && <Chip tone="danger" dot={false}>Atrasada</Chip>}
         </div>
@@ -286,7 +286,7 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
           <>
             <div className="strong">{nomes.join(' + ')}</div>
             <div className="cell-sub">{it.cargo}{it.escala ? ` · ${it.escala}` : ''}</div>
-            {it.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>⚠ {a}</div>)}
+            {it.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>{a}</div>)}
           </>
         ) : it.sem_candidato ? (
           <>

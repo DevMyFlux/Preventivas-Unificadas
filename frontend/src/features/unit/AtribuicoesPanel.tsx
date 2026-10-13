@@ -105,7 +105,7 @@ export default function AtribuicoesPanel({ client, dataIni, dataFim, onChanged }
                     <td>
                       {f.propostos.length ? <b>{f.propostos.join(' + ')}</b> : <Chip tone="purple">Requer intervenção</Chip>}
                       {f.motivo && <div className="cell-sub" style={{ whiteSpace: 'normal', maxWidth: 380 }}>{f.motivo}</div>}
-                      {f.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>⚠ {a}</div>)}
+                      {f.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>{a}</div>)}
                     </td>
                   </tr>
                 ))}

@@ -81,7 +81,7 @@ export default function RegrasPanel({ client, onChanged }: { client: UnitApiClie
                             onEscolher={(v) => setEscolhas((c) => ({ ...c, [r.alias]: v }))}
                             salvando={salvando === r.alias} onConfirmar={() => confirmar(r.alias)} onRemover={() => remover(r.alias)} />
                         ))}
-                        {l.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>⚠ {a}</div>)}
+                        {l.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>{a}</div>)}
                       </div>
                     </td>
                     <td>{l.status === 'ok' ? <Chip tone="success">Em vigor</Chip> : <Chip tone="warning">Aguardando confirmação</Chip>}</td>
