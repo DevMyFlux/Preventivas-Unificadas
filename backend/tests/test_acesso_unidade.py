@@ -80,7 +80,9 @@ def test_usuario_nao_acessa_nenhuma_rota_da_outra_unidade(client, criar_usuarios
     usuario = "ana.hmb" if unidade == "HMB" else "beto.hetrin"
     fazer_login(client, usuario, criar_usuarios)
     for rota in ROTAS_UNIDADE_GET:
-        assert client.get(PREFIXO[unidade] + rota).status_code == 200, f"{rota} na própria unidade"
+        propria = client.get(PREFIXO[unidade] + rota).status_code
+        # Regras e Atribuição são só do administrador: usuário comum recebe 403 até na própria unidade
+        assert propria == (403 if rota.split("?")[0] in ("/regras", "/atribuicoes") else 200), f"{rota} na própria unidade: {propria}"
         r = client.get(PREFIXO[outra] + rota)
         assert r.status_code == 403, f"{rota} da outra unidade respondeu {r.status_code}"
     # nenhuma consulta ao Neovero foi feita em nome da outra empresa
@@ -183,3 +185,25 @@ def test_exportacao_e_cache_respeitam_o_escopo_da_unidade(client, criar_usuarios
     fazer_login(ana, "ana.hmb", criar_usuarios)
     assert ana.get("/api/grandmassif/exportar_preventivas?data_ini=2026-10-14&data_fim=2026-10-14").status_code == 403
     assert ana.post("/api/grandmassif/exportar_planos", json={"itens": [{"id": 1}]}).status_code == 403
+
+
+@pytest.mark.parametrize("usuario,prefixo", [("ana.hmb", "/api/brasilandia"), ("beto.hetrin", "/api/grandmassif")])
+def test_regras_e_atribuicao_so_para_o_administrador_mesmo_na_propria_unidade(client, criar_usuarios, neovero_falso, usuario, prefixo):
+    fazer_login(client, usuario, criar_usuarios)
+    for metodo, rota, corpo in [("get", "/regras", None), ("put", "/regras/resolucoes", {"alias": "x", "funcionario": "y"}),
+                                ("delete", "/regras/resolucoes", None), ("get", "/atribuicoes", None),
+                                ("post", "/atribuicoes/propostas", {"os_ids": [1]}), ("post", "/atribuicoes/decisao", {"ids": [1], "acao": "aprovar"}),
+                                ("post", "/atribuicoes/processar", {"ids": [1], "modo": "simular"}),
+                                ("get", "/ATRIBUICOES", None), ("get", "/%72egras", None)]:
+        r = getattr(client, metodo)(prefixo + rota, **({"json": corpo} if corpo is not None else {}))
+        assert r.status_code == 403, f"{metodo.upper()} {rota} respondeu {r.status_code} para usuário comum"
+    # o que o usuário comum PODE: as demais rotas da unidade
+    assert client.get(prefixo + "/preventivas", query_string={"data_ini": "2026-10-14", "data_fim": "2026-10-14"}).status_code == 200
+
+
+def test_administrador_continua_acessando_regras_e_atribuicao(app, criar_usuarios, neovero_falso):
+    dev = app.test_client()
+    fazer_login(dev, "dev", criar_usuarios)
+    assert dev.get("/api/brasilandia/regras").status_code == 200
+    assert dev.get("/api/grandmassif/atribuicoes").status_code != 403          # passou pela guarda (400 = faltam datas)
+    assert dev.get("/api/grandmassif/regras").status_code == 200

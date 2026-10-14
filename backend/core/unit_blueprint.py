@@ -267,6 +267,7 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
             "responsavel": a.get("responsavel"), "busca": a.get("busca"),
             "revisao": True if _bool_arg("revisao") else None,
             "sem_candidato": True if _bool_arg("sem_candidato") else None,
+            "requer_intervencao": True if _bool_arg("requer_intervencao") else None,
             "origem": a.get("origem") or None, "oficina": a.get("oficina"),
         }
 

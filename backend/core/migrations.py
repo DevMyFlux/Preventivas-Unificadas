@@ -11,10 +11,11 @@ Regras:
 Para adicionar uma migração: acrescente uma função `_mNNN_descricao(conn)` e registre-a
 em MIGRACOES com o próximo número.
 """
+import json
 import logging
 import time
 
-from sqlalchemy import inspect, text
+from sqlalchemy import insert, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
 from core import models
@@ -65,6 +66,31 @@ def _m006_caixa_de_mensagens(conn) -> None:
         conn.execute(text("ALTER TABLE suporte_solicitacoes ADD COLUMN tratada_por VARCHAR(64)"))
 
 
+# Admissões de outubro/2026 informadas pela supervisão (HETRIN): chave do overlay (nome em maiúsculas) → data.
+ADMISSOES_HETRIN_OUT_2026 = {"EDUARDO OLIVEIRA DA CUNHA": "2026-10-02", "ALCEU RODRIGUES JUNIOR": "2026-10-13"}
+
+
+def _m007_admissoes_hetrin(conn) -> None:
+    """Registra a data de admissão dos dois profissionais novos da HETRIN no overlay (banco) — só onde ainda não há data.
+    Se a unidade ainda não foi semeada, nada a fazer: a semente (JSON do repositório) já traz as datas."""
+    t = models.ColaboradorOverlay.__table__
+    semeada = conn.execute(select(t.c.id).where(t.c.unit == "HETRIN", t.c.chave == "__seed__")).first()
+    if not semeada:
+        return
+    agora = models.agora_utc()
+    for chave, data in ADMISSOES_HETRIN_OUT_2026.items():
+        linha = conn.execute(select(t.c.id, t.c.dados).where(t.c.unit == "HETRIN", t.c.chave == chave)).first()
+        if linha is None:
+            conn.execute(insert(t).values(unit="HETRIN", chave=chave, dados=json.dumps({"data_admissao": data}),
+                                          updated_at=agora, updated_by="migracao"))
+        else:
+            dados = json.loads(linha.dados or "{}")
+            if not dados.get("data_admissao"):
+                dados["data_admissao"] = data
+                conn.execute(update(t).where(t.c.id == linha.id).values(dados=json.dumps(dados, ensure_ascii=False),
+                                                                          updated_at=agora, updated_by="migracao"))
+
+
 MIGRACOES = [
     (1, "esquema_inicial", _m001_esquema_inicial),
     (2, "overlay_de_colaboradores", _m002_overlay_de_colaboradores),
@@ -72,6 +98,7 @@ MIGRACOES = [
     (4, "suporte", _m004_suporte),
     (5, "historico_de_responsavel", _m005_historico_de_responsavel),
     (6, "caixa_de_mensagens", _m006_caixa_de_mensagens),
+    (7, "admissoes_hetrin", _m007_admissoes_hetrin),
 ]
 
 

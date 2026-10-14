@@ -1,8 +1,16 @@
 {
+  "ALCEU RODRIGUES JUNIOR": {
+    "data_admissao": "2026-10-13",
+    "nome": "Alceu Rodrigues Junior"
+  },
   "CARLOS AURÉLIO DE CARVALHO": {
     "data_desligamento": "2026-09-11",
     "nome": "Carlos Aurélio de Carvalho",
     "status": "Desligado"
+  },
+  "EDUARDO OLIVEIRA DA CUNHA": {
+    "data_admissao": "2026-10-02",
+    "nome": "Eduardo Oliveira da Cunha"
   },
   "MAIKON JONATHAS GOMES BESSA": {
     "data_desligamento": "2026-09-16",

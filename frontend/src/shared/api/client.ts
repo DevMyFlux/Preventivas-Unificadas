@@ -43,6 +43,7 @@ export function preventivasQuery(q: PreventivasQuery): Query {
     busca: q.busca?.trim(),
     revisao: q.revisao ? '1' : undefined,
     sem_candidato: q.semCandidato ? '1' : undefined,
+    requer_intervencao: q.requerIntervencao ? '1' : undefined,
     origem: q.origem,
     oficina: q.oficina,
     page: q.page,

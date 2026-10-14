@@ -65,3 +65,21 @@ Legenda — **Corrigido e validado**: corrigido no código, com teste automatiza
 - **Decisões de negócio abertas:** capacidade das rondas × limite diário (HETRIN: 321 rondas de iluminação noturnas (set–out)
   sem candidato por limite diário; Técnico de Climatização 10/dia), Michael/Diego H (HMB), AC/vácuo × escala, alternativas de cargo, 533–536 = Parada?
 - **Dependências externas:** conta Gmail com senha de app para o suporte; credenciais do Cloud SQL; liberar escrita do Neovero.
+
+## Anexo — Validação com a escala mais recente (arquivos de 07/10/2026) e ajustes pedidos
+
+Escalas usadas: `Escala Hetrin - Outubro (6).xlsx` e `Escala HMB - Outubro (4).xlsx` (substituíram as de 30/09 no repositório).
+Dados do Neovero: os mesmos de 14/10 (somente leitura). Resultados do código atual:
+
+| Item | Resultado | Evidência |
+|---|---|---|
+| Escala HETRIN nova × anterior | Quase idêntica | 23 pessoas; só mudou o dia 12 de 2 pessoas administrativas. Eduardo e Alceu já constavam |
+| Eduardo (admitido 02/10) e Alceu (admitido 13/10) | **Corrigido e validado** | Datas registradas (semente + migração 007); **0** recomendações a eles antes da admissão |
+| Fancoletes → técnicos | **Corrigido e validado** | Regra nominal ímpar→Wagner / par→Eduardo; nas 15 ocorrências futuras (todas em dia par) → Eduardo. Cargo exigido: Técnico de Climatização |
+| Motobombas por turno × dia | **Corrigido e validado** | Diurno ímpar→Luís Alberto (16), diurno par→Salem (9), noturno par→Maikon Douglas (5); noturno ímpar (Lúcio+Valdene) resolvido sem pendência (não há ocorrência nesse recorte). Antes iam para auxiliares |
+| Limpeza de fancoils | **Corrigido e validado** | Só Técnico de Climatização (17 de 17 em fancoils/fancoletes) |
+| Grupos geradores | **Corrigido e validado** | Só Eletricista (10 de 10). Antes o padrão só pegava “teste de partida” e um plano de gerador ia para auxiliar |
+| Noturno ímpar sem recomendação (Lúcio e Welington) | **Parcial — causa explicada** | Lúcio Jorge: **164** recomendações futuras (Valdene 163) — ele recebe. **Wellington: 0 por estar bloqueado** (aptidão pendente na escala/overlay); some ao desbloquear |
+| Limite diário como aviso | **Corrigido e validado** | Nada mais fica sem escalar por limite: HETRIN **577** OS escaladas com “Requer intervenção” (0 sem candidato); HMB 153 (sem candidato 635, todos por regra pendente/pessoa indisponível, não por limite) |
+| HMB: escala nova | **Validado; mesma pendência de negócio** | 28 pessoas (nova: Jessica, assistente administrativa; “Michael Kelvin … **Pupo**” — o nome do Neovero ainda casa). “Michael” segue ambíguo e “Diego H” sem correspondência. AC/vácuo: Douglas trabalha dias ímpares (D nos dias 17,19…), Gustavo nos pares, e Israel está de folga/férias de 17/10 em diante ⇒ pares: só Gustavo (64); ímpares: Israel quase nunca (64 sem candidato) |
+| Escala × regra (HMB) | **Não corrigido (decisão de negócio)** | A regra “par → Douglas + Gustavo; ímpar → Israel” não é atendível com esta escala |

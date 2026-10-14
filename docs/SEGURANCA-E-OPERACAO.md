@@ -12,6 +12,11 @@
   `%67randmassif`, caixa alta. Caches têm prefixo de unidade.
 - **Mudar o vínculo ou desativar** um usuário encerra suas sessões na hora; **desativar não apaga histórico**.
 
+## Áreas exclusivas do administrador
+
+- `/api/admin/*` (usuários, utilização, mensagens) e, em **cada unidade**, `/regras*` e `/atribuicoes*` exigem perfil Dev: a guarda
+  global responde 403 (`area_administrativa`) a usuário comum, mesmo na própria unidade, e o frontend esconde essas telas.
+
 ## Credenciais e sessão
 
 - Senhas: **scrypt** com salt (werkzeug). Mínimo 10 caracteres, com letras e números. Nunca em log/resposta.

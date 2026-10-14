@@ -80,6 +80,9 @@ export interface Preventiva {
   revisao: boolean;
   sem_candidato: boolean;
   motivo_sem_candidato: string | null;
+  /** sem candidato OU escalada acima do limite diário — a tela mostra só "Requer intervenção"; o motivo aparece ao clicar */
+  requer_intervencao?: boolean;
+  motivo_intervencao?: string | null;
   regra: { id: string; status: 'aplicada' | 'pendente'; mensagem: string } | null;
   alertas: string[];
   /** cargo exigido pelo plano (regra de cargo da unidade), quando existe */
@@ -99,6 +102,7 @@ export interface TotaisPreventivas {
   atrasadas: number;
   revisao: number;
   sem_candidato: number;
+  requer_intervencao?: number;
   com_recomendacao: number;
 }
 
@@ -141,6 +145,7 @@ export interface PreventivasQuery {
   busca?: string;
   revisao?: boolean;
   semCandidato?: boolean;
+  requerIntervencao?: boolean;
   origem?: string;
   oficina?: string;
   page?: number;

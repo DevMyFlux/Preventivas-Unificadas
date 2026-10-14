@@ -33,6 +33,16 @@ _SEM_AUDITORIA = {
 _RE_ADMIN_LEITURA = re.compile(r"^/api/admin/(audit(/summary)?|sessions|usage|users|assignments|suporte(/contagem)?)?/?$")
 
 
+# Áreas de cada unidade que só o administrador (Dev) acessa: regras nominais e fila/propostas de atribuição.
+_SOMENTE_ADMIN = {"regras", "atribuicoes"}
+
+
+def _segmento_da_unidade(caminho: str) -> str:
+    """/api/<prefixo>/<segmento>/... → segmento (sem depender de maiúsculas/escape)."""
+    partes = [unquote(p).lower() for p in caminho.split("/") if p]
+    return partes[2] if len(partes) > 2 else ""
+
+
 def ip_cliente() -> str | None:
     """IP do cliente. Atrás do proxy do Railway, ProxyFix (app_factory) já substitui `remote_addr`
     pelo valor que o PROXY CONFIÁVEL anexou a X-Forwarded-For — nunca lemos o cabeçalho cru
@@ -142,6 +152,10 @@ def instalar(app) -> None:
         if unidade and not user.is_dev and user.unit != unidade.codigo:
             g.negado_motivo = f"unidade_diferente:{unidade.codigo}"
             return _json_erro("proibido", "Você não tem acesso a esta unidade.", 403)
+
+        if unidade and not user.is_dev and _segmento_da_unidade(caminho) in _SOMENTE_ADMIN:
+            g.negado_motivo = "area_administrativa"     # Regras e Atribuição: só administradores (também no backend)
+            return _json_erro("proibido", "Acesso restrito ao administrador.", 403)
 
         g.unidade_rota = unidade
         return None

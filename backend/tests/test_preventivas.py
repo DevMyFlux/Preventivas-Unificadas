@@ -171,7 +171,7 @@ def test_sem_executante_apto_vira_sem_candidato_e_nunca_o_gestor():
 
 # ── limite diário dentro do gerador (sem dupla contagem) ─────────────────────
 
-def test_gerador_respeita_14_por_dia_e_sinaliza_o_excedente():
+def test_gerador_escala_todas_mas_sinaliza_intervencao_alem_das_14_por_dia():
     colab = colaboradores_df([{"funcionario": "Unico Eletricista", "cargo": "Eletricista"}])
     reais = [os_neovero(6000 + i, "2026-10-14", situacao=1, responsavel="WILLIAN DE SOUZA LOBO", responsavel_id=31,
                         equip_id=100 + i, plano="PM - MENSAL - QUADROS ELÉTRICOS", oficina="ELÉTRICA/QGBT")
@@ -179,10 +179,12 @@ def test_gerador_respeita_14_por_dia_e_sinaliza_o_excedente():
     ctx = _ctx(colab)
     ocs = _gerar(ctx, os_periodo=reais)
     com = [o for o in ocs if o["recomendado"]]
-    sem = [o for o in ocs if o["sem_candidato"]]
-    assert len(com) == 14 and len(sem) == 6
-    assert all("Limite diário" in o["motivo_sem_candidato"] for o in sem)
-    assert ctx.ocupacao.total("Unico Eletricista", date(2026, 10, 14)) == 14
+    assert len(com) == 20 and not [o for o in ocs if o["sem_candidato"]]        # nenhuma fica sem escalar
+    acima = [o for o in ocs if o["requer_intervencao"]]
+    assert len(acima) == 6 and all(o["recomendado"] == "Unico Eletricista" for o in acima)
+    assert all("Limite diário" in o["motivo_intervencao"] and "(limite 14)" in o["motivo_intervencao"] for o in acima)
+    assert not any(o["requer_intervencao"] for o in com if o not in acima)       # as 14 primeiras sem aviso
+    assert prev.totais(ocs)["requer_intervencao"] == 6
 
 
 def test_os_reais_ja_atribuidas_consomem_o_limite_do_dia_e_nao_sao_contadas_duas_vezes():
@@ -194,9 +196,11 @@ def test_os_reais_ja_atribuidas_consomem_o_limite_do_dia_e_nao_sao_contadas_duas
                                 oficina="ELÉTRICA/QGBT") for i in range(3)]
     ctx = _ctx(colab)
     ocs = _gerar(ctx, os_periodo=ja_dele + para_atribuir)
-    assert sum(1 for o in ocs if o["recomendado"]) == 1   # 13 + 1 = 14
-    assert sum(1 for o in ocs if o["sem_candidato"]) == 2
-    assert ctx.ocupacao.total("Unico Eletricista", date(2026, 10, 14)) == 14
+    novas = [o for o in ocs if o["recomendado"]]
+    assert len(novas) == 3                                                       # as 3 são escaladas
+    assert sum(1 for o in novas if o["requer_intervencao"]) == 2                 # 13 + 1 = 14; a 2ª e a 3ª passam do limite
+    assert not any(o["sem_candidato"] for o in ocs)
+    assert ctx.ocupacao.total("Unico Eletricista", date(2026, 10, 14)) == 16
 
 
 def test_ocupacao_e_independente_por_dia():
@@ -340,10 +344,10 @@ def test_tipo_isento_nao_consome_nem_consulta_o_limite_diario(monkeypatch):
                         equip_id=500 + i, plano="PM - DIÁRIO - RONDA - NOBREAK", oficina="ELÉTRICA/QGBT", tipo="RONDA",
                         tipo_id=8, periodicidade=1, unidade_tempo="D") for i in range(20)]
     padrao = _gerar(_ctx(colab), os_periodo=reais)
-    assert sum(1 for o in padrao if o["recomendado"]) == 14          # padrão: tudo conta
+    assert sum(1 for o in padrao if o["recomendado"] and not o["requer_intervencao"]) == 14          # padrão: tudo conta (as demais, com aviso)
     monkeypatch.setattr(limites, "TIPO_IDS_ISENTOS_LIMITE", frozenset({8}))
     isento = _gerar(_ctx(colab), os_periodo=reais)
-    assert sum(1 for o in isento if o["recomendado"]) == 20
+    assert sum(1 for o in isento if o["recomendado"] and not o["requer_intervencao"]) == 20       # isento: nenhum aviso
 
 
 def test_projecao_com_a_os_aberta_vinculada_nao_duplica_a_os_real_de_outra_data():

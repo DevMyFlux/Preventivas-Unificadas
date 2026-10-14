@@ -28,12 +28,14 @@ const NAV_DIARIO: { key: PaginaUnidade; label: string; icon: IconName }[] = [
   { key: 'preventivas', label: 'Preventivas', icon: 'calendar' },
   { key: 'colaboradores', label: 'Colaboradores', icon: 'users' },
   { key: 'revisao', label: 'Revisão', icon: 'alert' },
+  { key: 'planos', label: 'Planos', icon: 'list' },
 ];
+// Atribuição e Regras são só do administrador (o backend também recusa os demais com 403).
 const NAV_CONFIG: { key: PaginaUnidade; label: string; icon: IconName }[] = [
   { key: 'atribuicoes', label: 'Atribuição', icon: 'link' },
-  { key: 'planos', label: 'Planos', icon: 'list' },
   { key: 'regras', label: 'Regras', icon: 'sliders' },
 ];
+const PAGINAS_SO_ADMIN: string[] = ['atribuicoes', 'regras'];
 
 const NAV_ADMIN: { key: PaginaAdmin; label: string; icon: IconName }[] = [
   { key: 'usuarios', label: 'Usuários', icon: 'shield' },
@@ -99,7 +101,8 @@ export default function Shell() {
 
   // Rota que o usuário não pode usar (admin sem ser Dev, unidade que não é a dele): volta para a dele.
   // É só conveniência de navegação — o backend recusa (403) de qualquer forma.
-  const proibida = (rota.tipo === 'admin' && !u.is_dev) || (rota.tipo === 'unidade' && !unidades.some((x) => x.codigo === rota.unidade));
+  const proibida = (rota.tipo === 'admin' && !u.is_dev)
+    || (rota.tipo === 'unidade' && (!unidades.some((x) => x.codigo === rota.unidade) || (!u.is_dev && PAGINAS_SO_ADMIN.includes(rota.pagina))));
   useEffect(() => {
     if (proibida) navegar({ tipo: 'unidade', unidade: padrao, pagina: 'preventivas' });
   }, [proibida, navegar, padrao]);
@@ -156,10 +159,14 @@ export default function Shell() {
         <nav className="nav" aria-label="Módulos da unidade">
           {NAV_DIARIO.map(itemUnidade)}
         </nav>
-        <div className="side-label">Configuração</div>
-        <nav className="nav nav-secundario" aria-label="Configuração da unidade">
-          {NAV_CONFIG.map(itemUnidade)}
-        </nav>
+        {u.is_dev && (
+          <>
+            <div className="side-label">Configuração</div>
+            <nav className="nav nav-secundario" aria-label="Configuração da unidade">
+              {NAV_CONFIG.map(itemUnidade)}
+            </nav>
+          </>
+        )}
 
         {u.is_dev && (
           <>
@@ -220,7 +227,7 @@ export default function Shell() {
             rota.pagina === 'usuarios' ? <UsersPage /> : rota.pagina === 'mensagens' ? <MensagensPage onChanged={setNaoLidas} /> : <UtilizacaoPage />
           ) : rota.tipo === 'geral' ? <SuportePage /> : client && unidadeAtual ? (
             <UnidadeConteudo key={unidadeAtual.codigo} codigo={unidadeAtual.codigo} client={client} pagina={rota.pagina}
-              periodo={periodo} setCount={setCount} irPara={(p) => irPara({ tipo: 'unidade', unidade: unidadeAtual.codigo, pagina: p })} />
+              periodo={periodo} setCount={setCount} souAdmin={u.is_dev} irPara={(p) => irPara({ tipo: 'unidade', unidade: unidadeAtual.codigo, pagina: p })} />
           ) : null}
         </main>
       </div>
@@ -231,8 +238,8 @@ export default function Shell() {
   );
 }
 
-function UnidadeConteudo({ codigo, client, pagina, periodo, setCount, irPara }: {
-  codigo: string; client: UnitApiClient; pagina: PaginaUnidade; periodo: { dataIni: string; dataFim: string };
+function UnidadeConteudo({ codigo, client, pagina, periodo, setCount, irPara, souAdmin }: {
+  codigo: string; client: UnitApiClient; pagina: PaginaUnidade; periodo: { dataIni: string; dataFim: string }; souAdmin: boolean;
   setCount: (chave: string) => (n: number) => void; irPara: (p: PaginaUnidade) => void;
 }) {
   const [versaoRegras, setVersaoRegras] = useState(0);
@@ -243,13 +250,13 @@ function UnidadeConteudo({ codigo, client, pagina, periodo, setCount, irPara }: 
     <>
       <div style={visivel('preventivas')}>
         <PreventivasPanel key={versaoRegras} client={client} dataIni={periodo.dataIni} dataFim={periodo.dataFim}
-          onCount={contar('preventivas')} onIrParaRegras={() => irPara('regras')} />
+          onCount={contar('preventivas')} onIrParaRegras={souAdmin ? () => irPara('regras') : undefined} />
       </div>
-      <div style={visivel('revisao')}><RevisaoPanel client={client} onCount={contar('revisao')} /></div>
-      <div style={visivel('atribuicoes')}><AtribuicoesPanel client={client} dataIni={periodo.dataIni} dataFim={periodo.dataFim} /></div>
+      <div style={visivel('revisao')}><RevisaoPanel client={client} onCount={contar('revisao')} podeAtribuir={souAdmin} /></div>
+      {souAdmin && <div style={visivel('atribuicoes')}><AtribuicoesPanel client={client} dataIni={periodo.dataIni} dataFim={periodo.dataFim} /></div>}
       <div style={visivel('colaboradores')}><ColaboradoresPanel client={client} dataIni={periodo.dataIni} dataFim={periodo.dataFim} onCount={contar('colaboradores')} /></div>
       <div style={visivel('planos')}><PlanosPanel client={client} onCount={contar('planos')} /></div>
-      <div style={visivel('regras')}><RegrasPanel client={client} onChanged={() => setVersaoRegras((v) => v + 1)} /></div>
+      {souAdmin && <div style={visivel('regras')}><RegrasPanel client={client} onChanged={() => setVersaoRegras((v) => v + 1)} /></div>}
     </>
   );
 }

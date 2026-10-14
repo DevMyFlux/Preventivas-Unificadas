@@ -59,15 +59,18 @@ def test_familia_do_cargo(cargo, familia):
 
 @pytest.mark.parametrize("plano,regra", [
     ("PM – MENSAL – INSPEÇÃO SISTEMA DE COMBATE A INCÊNDIO", "inspecao_combate_incendio"),
-    ("PM SEMANAL - TESTE DE PARTIDA DOS GRUPOS GERADORES", "teste_partida_geradores"),
+    ("PM SEMANAL - TESTE DE PARTIDA DOS GRUPOS GERADORES", "grupos_geradores"),
     ("PM - LIMPEZA E INSPEÇÃO VISUAL DOS PAINÉIS TERMOSSOLARES", "paineis_termossolares"),
     ("COLETA DIÁRIA MEDIDOR - NOTURNO - N1", "coleta_medidor_noturno_n1"),
-    ("PM - LIMPEZA FANCOILS BL1 - DIA 01", "limpeza_fancoils_bl1"),
-    ("PM - LIMPEZA FANCOILS BL1 - DIA 02", "limpeza_fancoils_bl1"),
+    ("PM - LIMPEZA FANCOILS BL1 - DIA 01", "fancoils_e_fancoletes"),
+    ("PM - LIMPEZA FANCOILS BL1 - DIA 02", "fancoils_e_fancoletes"),
     ("PM RONDA PERIÓDICA - RÉGUAS DE GASES MEDICINAIS - 1º ANDAR", "reguas_gases_e_exaustores"),
     ("LIMPEZA QUINZENAL - EXAUSTORES/DIFUSORES - NOITE - N1", "reguas_gases_e_exaustores"),
-    ("PM - RONDA ILUMINAÇÃO/TOMADAS - NOITE - N1", "rondas_iluminacao_e_motobombas"),
-    ("PM - RONDA SEMANAL - MOTOBOMBAS - HETRIN - DIURNO", "rondas_iluminacao_e_motobombas"),
+    ("PM - RONDA ILUMINAÇÃO/TOMADAS - NOITE - N1", "ronda_iluminacao_tomadas"),
+    ("PM - RONDA SEMANAL - MOTOBOMBAS - HETRIN - DIURNO", "motobombas"),
+    ("PM - MENSAL MOTOBOMBAS NOITE - N1", "motobombas"),
+    ("PM MENSAL - FANCOLETE - HETRIN", "fancoils_e_fancoletes"),
+    ("PM SEMANAL - INSPEÇÃO GRUPOS GERADORES", "grupos_geradores"),
     ("RONDA DIÁRIA – CHILLER CONDENSAÇÃO A AR – COMPRESSOR SCROLL", "rondas_climatizacao_diarias"),
     ("PM - RONDA DIÁRIA - SISTEMA DE AR COMPRIMIDO - PAR", "rondas_climatizacao_diarias"),
 ])
@@ -78,7 +81,7 @@ def test_planos_reais_da_hetrin_casam_com_a_regra_certa(plano, regra):
 @pytest.mark.parametrize("plano", [
     "PM - MENSAL - SPLIT", "PM SEMANAL - SISTEMA DE ALARME DE COMBATE A INCÊNDIO",     # alarme semanal: sem regra pedida
     "COLETA DIÁRIA MEDIDOR - NOTURNO - N2", "COLETA DIÁRIA MEDIDOR - DIURNO - D1",       # só o N1 foi regulado
-    "PM - MENSAL MOTOBOMBAS NOITE - N1", "PM RONDA PERIÓDICA - FANCOILS HIDRÔNICOS", "",
+    "PM RONDA PERIÓDICA - FANCOILS HIDRÔNICOS", "",
 ])
 def test_planos_sem_regra_de_cargo_continuam_livres(plano):
     assert regra_cargo_do_plano(plano) is None
@@ -86,7 +89,7 @@ def test_planos_sem_regra_de_cargo_continuam_livres(plano):
 
 def test_alternativas_sao_explicitas_so_onde_declaradas():
     com_alt = {r.id for r in REGRAS_CARGO if r.alternativas}
-    assert com_alt == {"reguas_gases_e_exaustores", "rondas_iluminacao_e_motobombas"}
+    assert com_alt == {"reguas_gases_e_exaustores", "ronda_iluminacao_tomadas"}
     assert cargos.violacao(regra_cargo_do_plano("PM - LIMPEZA FANCOILS BL1 - DIA 01"), "Aux. Eletricista").startswith("Cargo fora")
     assert cargos.violacao(regra_cargo_do_plano("PM - LIMPEZA FANCOILS BL1 - DIA 01"), "Técnico de Climatização") is None
     assert cargos.violacao(regra_cargo_do_plano("PM - RONDA ILUMINAÇÃO/TOMADAS - DIA - D1"), "Aux. Eletricista").startswith("Cargo alternativo")
@@ -155,11 +158,11 @@ def test_escassez_de_tecnico_de_climatizacao_na_ronda_diaria_e_sinalizada_e_nunc
     assert "Técnico de Climatização" in oc["motivo_sem_candidato"]
 
 
-def test_limite_diario_continua_valendo_dentro_da_familia_e_nao_recua_para_outro_cargo():
+def test_limite_diario_dentro_da_familia_avisa_mas_nao_recua_para_outro_cargo():
     ctx = _ctx([ELETRICISTA, AUX_ELETRICISTA])
     ocs = _gerar(ctx, [_os(100 + i, INSPECAO) for i in range(16)])
-    assert sum(1 for o in ocs if o["recomendado"] == "Eletricista A") == 14
-    assert sum(1 for o in ocs if o["sem_candidato"]) == 2 and all(o["recomendado"] != "Aux Eletrico A" for o in ocs)
+    assert all(o["recomendado"] == "Eletricista A" for o in ocs)                  # nunca vai para o auxiliar
+    assert sum(1 for o in ocs if o["requer_intervencao"]) == 2 and not any(o["sem_candidato"] for o in ocs)
 
 
 def test_hmb_e_qualquer_unidade_sem_tabela_nao_herdam_regra_de_cargo():
