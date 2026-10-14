@@ -186,7 +186,11 @@ class SuporteSolicitacao(Base):
     tipo: Mapped[str] = mapped_column(String(16), nullable=False)
     mensagem: Mapped[str] = mapped_column(Text, nullable=False)
     msg_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="enviando")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="enviando")   # enviando|recebida|enviada|falha
+    # tratamento pela administração (caixa interna): nova | lida | resolvida
+    situacao: Mapped[str] = mapped_column(String(12), nullable=False, default="nova", server_default="nova")
+    tratada_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    tratada_por: Mapped[str | None] = mapped_column(String(64), nullable=True)
     erro: Mapped[str | None] = mapped_column(String(200), nullable=True)     # categoria do erro, nunca credenciais
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

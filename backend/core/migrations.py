@@ -54,12 +54,24 @@ def _m005_historico_de_responsavel(conn) -> None:
     models.OsResponsavelHistorico.__table__.create(conn, checkfirst=True)
 
 
+def _m006_caixa_de_mensagens(conn) -> None:
+    """Acrescenta a `suporte_solicitacoes` a situação de tratamento (nova/lida/resolvida). Aditiva."""
+    existentes = {c["name"] for c in inspect(conn).get_columns("suporte_solicitacoes")}
+    if "situacao" not in existentes:
+        conn.execute(text("ALTER TABLE suporte_solicitacoes ADD COLUMN situacao VARCHAR(12) NOT NULL DEFAULT 'nova'"))
+    if "tratada_em" not in existentes:
+        conn.execute(text("ALTER TABLE suporte_solicitacoes ADD COLUMN tratada_em TIMESTAMP"))
+    if "tratada_por" not in existentes:
+        conn.execute(text("ALTER TABLE suporte_solicitacoes ADD COLUMN tratada_por VARCHAR(64)"))
+
+
 MIGRACOES = [
     (1, "esquema_inicial", _m001_esquema_inicial),
     (2, "overlay_de_colaboradores", _m002_overlay_de_colaboradores),
     (3, "atividade_das_sessoes", _m003_atividade_das_sessoes),
     (4, "suporte", _m004_suporte),
     (5, "historico_de_responsavel", _m005_historico_de_responsavel),
+    (6, "caixa_de_mensagens", _m006_caixa_de_mensagens),
 ]
 
 

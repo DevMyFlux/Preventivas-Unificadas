@@ -214,8 +214,19 @@ class Settings:
         return _int("SUPORTE_LIMITE_POR_HORA", 5)
 
     @property
-    def suporte_configurado(self) -> bool:
+    def suporte_entrega(self) -> str:
+        """Como as mensagens de suporte chegam à administração: `caixa` (padrão — ficam na própria plataforma,
+        visíveis só ao Dev) ou `email` (SMTP; exige SMTP_USER/SMTP_PASSWORD)."""
+        return "email" if os.environ.get("SUPORTE_ENTREGA", "caixa").strip().lower() == "email" else "caixa"
+
+    @property
+    def smtp_configurado(self) -> bool:
         return bool(self.smtp_user and self.smtp_password and self.smtp_remetente)
+
+    @property
+    def suporte_configurado(self) -> bool:
+        """A caixa interna sempre está pronta; por e-mail depende das credenciais SMTP."""
+        return True if self.suporte_entrega == "caixa" else self.smtp_configurado
 
 
 settings = Settings()

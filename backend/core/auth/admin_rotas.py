@@ -16,7 +16,7 @@ from core.auth.http import ip_cliente
 from core.auth.rotas import serializar_usuario
 from core.db import agora_utc, sessao
 from core.exporters import gerar_csv_tabela, gerar_excel_tabela
-from core.models import ROLE_USER, AuthSession, User
+from core.models import ROLE_USER, AuthSession, SuporteSolicitacao, User
 from core.settings import settings
 from core.unidades import UNIDADES, codigo_valido
 
@@ -221,6 +221,70 @@ def redefinir_senha(user_id: int):
 
 
 # ── Auditoria / sessões / relatórios ──────────────────────────────────────────
+
+# ── caixa de mensagens (Sugestões e Suporte) ─────────────────────────────────
+
+_SITUACOES_MENSAGEM = ("nova", "lida", "resolvida")
+
+
+def _serializar_mensagem(m: SuporteSolicitacao) -> dict:
+    return {
+        "id": m.id, "ts": m.ts.isoformat() + "Z", "username": m.username, "unit": m.unit, "nome": m.nome, "email": m.email,
+        "tipo": m.tipo, "mensagem": m.mensagem, "entrega": m.status, "situacao": m.situacao,
+        "tratada_em": (m.tratada_em.isoformat() + "Z") if m.tratada_em else None, "tratada_por": m.tratada_por,
+    }
+
+
+@bp.route("/suporte", methods=["GET"])
+@dev_required
+def listar_mensagens():
+    """Caixa de mensagens enviadas pelos usuários (somente Dev). Filtros: situacao, tipo, unit; paginada."""
+    a = request.args
+    pagina = max(1, a.get("page", 1, type=int))
+    por_pagina = min(100, max(1, a.get("page_size", 25, type=int)))
+    with sessao() as s:
+        base = select(SuporteSolicitacao).where(SuporteSolicitacao.status != "enviando")
+        if a.get("situacao") in _SITUACOES_MENSAGEM:
+            base = base.where(SuporteSolicitacao.situacao == a["situacao"])
+        if a.get("tipo") in ("sugestao", "problema", "melhoria"):
+            base = base.where(SuporteSolicitacao.tipo == a["tipo"])
+        if a.get("unit") in UNIDADES:
+            base = base.where(SuporteSolicitacao.unit == a["unit"])
+        total = s.scalar(select(func.count()).select_from(base.subquery())) or 0
+        linhas = s.scalars(base.order_by(SuporteSolicitacao.id.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina)).all()
+        itens = [_serializar_mensagem(m) for m in linhas]
+        nao_lidas = s.scalar(select(func.count()).select_from(SuporteSolicitacao).where(
+            SuporteSolicitacao.situacao == "nova", SuporteSolicitacao.status != "enviando")) or 0
+    return jsonify({"total": total, "pagina": pagina, "por_pagina": por_pagina, "itens": itens, "nao_lidas": nao_lidas})
+
+
+@bp.route("/suporte/contagem", methods=["GET"])
+@dev_required
+def contagem_mensagens():
+    with sessao() as s:
+        n = s.scalar(select(func.count()).select_from(SuporteSolicitacao).where(
+            SuporteSolicitacao.situacao == "nova", SuporteSolicitacao.status != "enviando")) or 0
+    return jsonify({"nao_lidas": n})
+
+
+@bp.route("/suporte/<int:mensagem_id>", methods=["PATCH"])
+@dev_required
+def tratar_mensagem(mensagem_id: int):
+    """Marca a mensagem como nova/lida/resolvida (registra quem e quando)."""
+    situacao = (request.get_json(silent=True) or {}).get("situacao")
+    if situacao not in _SITUACOES_MENSAGEM:
+        return jsonify({"erro": "Situação inválida.", "codigo": "validacao", "campo": "situacao"}), 400
+    with sessao() as s:
+        m = s.get(SuporteSolicitacao, mensagem_id)
+        if m is None or m.status == "enviando":
+            return jsonify({"erro": "Mensagem não encontrada."}), 404
+        m.situacao = situacao
+        m.tratada_em, m.tratada_por = (None, None) if situacao == "nova" else (agora_utc(), g.user.username)
+        s.flush()
+        saida = _serializar_mensagem(m)
+    g.audit_details = {"mensagem": mensagem_id, "situacao": situacao}
+    return jsonify(saida)
+
 
 @bp.route("/audit", methods=["GET"])
 @dev_required

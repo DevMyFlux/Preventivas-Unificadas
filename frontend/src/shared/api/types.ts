@@ -528,8 +528,35 @@ export interface UserDetail {
 
 export interface SuporteStatus {
   configurado: boolean;
+  /** `caixa` = fica na plataforma (só admin lê); `email` = SMTP */
+  entrega: 'caixa' | 'email';
   tipos: Record<string, string>;
   limites: { mensagem_max: number; mensagem_min: number; nome_max: number };
+}
+
+export type SituacaoMensagem = 'nova' | 'lida' | 'resolvida';
+
+export interface MensagemSuporte {
+  id: number;
+  ts: string;
+  username: string;
+  unit: string | null;
+  nome: string;
+  email: string;
+  tipo: TipoSuporte;
+  mensagem: string;
+  entrega: string;
+  situacao: SituacaoMensagem;
+  tratada_em: string | null;
+  tratada_por: string | null;
+}
+
+export interface MensagensPage {
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  itens: MensagemSuporte[];
+  nao_lidas: number;
 }
 
 export type TipoSuporte = 'sugestao' | 'problema' | 'melhoria';

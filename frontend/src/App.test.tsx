@@ -48,7 +48,7 @@ beforeEach(() => {
   window.location.hash = '';
   mocks.ping.mockResolvedValue({ ok: true, expira_em_s: 1500 });
   mocks.sessao.mockResolvedValue({ expira_em_s: 1500, ociosidade_max_s: 1500, aviso_antes_s: 120 });
-  mocks.suporteStatus.mockResolvedValue({ configurado: true, tipos: {}, limites: { mensagem_max: 5000, mensagem_min: 10, nome_max: 120 } });
+  mocks.suporteStatus.mockResolvedValue({ configurado: true, entrega: 'caixa', tipos: {}, limites: { mensagem_max: 5000, mensagem_min: 10, nome_max: 120 } });
   mocks.activity.mockResolvedValue({ ok: true });
   mocks.fetchPreventivas.mockResolvedValue({
     total: 0, com_recomendacao: 0, em_atraso: 0, pagina: 1, por_pagina: 100, itens: [], totais: totaisVazios,
@@ -144,6 +144,7 @@ describe('controle de acesso na interface (a segurança real é do backend)', ()
     expect(within(lateral).getByRole('button', { name: 'HMB' })).toBeEnabled();
     expect(within(lateral).getByText('Administração')).toBeInTheDocument();
     expect(within(lateral).getByRole('button', { name: /Utilização/ })).toBeInTheDocument();
+    expect(within(lateral).getByRole('button', { name: /Mensagens/ })).toBeInTheDocument();
   });
 });
 
@@ -279,8 +280,15 @@ describe('Sugestões e Suporte', () => {
     expect(await screen.findByText('Mensagem enviada ao suporte.')).toBeInTheDocument();
   });
 
-  it('se o e-mail do servidor não está configurado, avisa e não finge que enviou', async () => {
-    mocks.suporteStatus.mockResolvedValue({ configurado: false, tipos: {}, limites: { mensagem_max: 5000, mensagem_min: 10, nome_max: 120 } });
+  it('na caixa interna (padrão) não pede e-mail configurado e o botão fica habilitado', async () => {
+    const form = await abrirSuporte();
+    expect(screen.queryByText(/ainda não está configurado/)).toBeNull();
+    expect(within(form).getByRole('button', { name: /Enviar/ })).toBeEnabled();
+    expect(screen.getByText(/administração vai ler/)).toBeInTheDocument();
+  });
+
+  it('no modo e-mail sem SMTP, avisa e não finge que enviou', async () => {
+    mocks.suporteStatus.mockResolvedValue({ configurado: false, entrega: 'email', tipos: {}, limites: { mensagem_max: 5000, mensagem_min: 10, nome_max: 120 } });
     const form = await abrirSuporte();
     expect(await screen.findByText(/ainda não está configurado/)).toBeInTheDocument();
     expect(within(form).getByRole('button', { name: /Enviar/ })).toBeDisabled();

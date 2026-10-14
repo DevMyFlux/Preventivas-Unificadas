@@ -43,7 +43,8 @@ export default function SuportePage() {
   const [resultado, setResultado] = useState<{ tom: 'success' | 'danger' | 'warning'; texto: string } | null>(null);
   const trava = useRef(false);   // impede segundo envio antes de o primeiro responder (duplo clique)
 
-  const naoConfigurado = status.data?.configurado === false;
+  const naoConfigurado = status.data?.configurado === false;   // só no modo e-mail sem SMTP; a caixa interna sempre está pronta
+  const porCaixa = status.data?.entrega !== 'email';
 
   const enviar = async (ev: FormEvent) => {
     ev.preventDefault();
@@ -75,7 +76,7 @@ export default function SuportePage() {
 
   return (
     <div className="stack" style={{ maxWidth: 720 }}>
-      <PageHead title="Sugestões e Suporte" subtitle="Conte o que podemos melhorar ou o que não está funcionando. A equipe responde no e-mail informado." />
+      <PageHead title="Sugestões e Suporte" subtitle={porCaixa ? 'Conte o que podemos melhorar ou o que não está funcionando. A mensagem fica registrada na plataforma e a administração vai ler.' : 'Conte o que podemos melhorar ou o que não está funcionando. A equipe responde no e-mail informado.'} />
 
       {naoConfigurado && (
         <Alert tone="warning">

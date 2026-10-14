@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { PAGINAS_ADMIN, useRota } from './route';
 import type { PaginaAdmin, PaginaUnidade, Rota } from './route';
+import MensagensPage from '../features/admin/MensagensPage';
 import UsersPage from '../features/admin/UsersPage';
 import UtilizacaoPage from '../features/admin/UtilizacaoPage';
 import ChangePasswordDialog from '../features/auth/ChangePasswordDialog';
@@ -13,6 +14,7 @@ import RegrasPanel from '../features/unit/RegrasPanel';
 import RevisaoPanel from '../features/unit/RevisaoPanel';
 import SuportePage from '../features/suporte/SuportePage';
 import { authApi, buildUnitClient } from '../shared/api/client';
+import { adminApi } from '../shared/api/adminClient';
 import type { UnitApiClient } from '../shared/api/client';
 import type { UnitInfo } from '../shared/api/types';
 import Icon from '../shared/ui/Icon';
@@ -36,11 +38,12 @@ const NAV_CONFIG: { key: PaginaUnidade; label: string; icon: IconName }[] = [
 const NAV_ADMIN: { key: PaginaAdmin; label: string; icon: IconName }[] = [
   { key: 'usuarios', label: 'Usuários', icon: 'shield' },
   { key: 'utilizacao', label: 'Utilização', icon: 'activity' },
+  { key: 'mensagens', label: 'Mensagens', icon: 'mail' },
 ];
 
 const TITULOS: Record<string, string> = {
   preventivas: 'Preventivas', revisao: 'Revisão de responsáveis', atribuicoes: 'Atribuição de executantes', colaboradores: 'Colaboradores',
-  planos: 'Planos de manutenção', regras: 'Regras de atribuição', usuarios: 'Usuários e acessos', utilizacao: 'Utilização do sistema',
+  planos: 'Planos de manutenção', regras: 'Regras de atribuição', usuarios: 'Usuários e acessos', utilizacao: 'Utilização do sistema', mensagens: 'Caixa de mensagens',
   suporte: 'Sugestões e Suporte',
 };
 
@@ -70,6 +73,7 @@ export default function Shell() {
   const [tema, alternarTema] = useTema();
   const [menuAberto, setMenuAberto] = useState(false);
   const [senhaAberta, setSenhaAberta] = useState(false);
+  const [naoLidas, setNaoLidas] = useState(0);
   const [contagens, setContagens] = useState<Record<string, number | undefined>>({});
   const sessao = useSessaoMonitor();
 
@@ -105,6 +109,12 @@ export default function Shell() {
     const modulo = rota.tipo === 'admin' ? 'admin' : ({ atribuicoes: 'distribuicao', revisao: 'distribuicao' } as Record<string, string>)[rota.pagina] ?? rota.pagina;
     authApi.activity(modulo, rota.tipo === 'unidade' ? unidadeAtual?.codigo : undefined).catch(() => {});
   }, [rota, unidadeAtual?.codigo]);
+
+  // Contador de mensagens novas (só Dev). Atualiza ao navegar — nunca por polling, para não manter a sessão viva.
+  useEffect(() => {
+    if (!u.is_dev) return;
+    adminApi.messagesCount().then((r) => setNaoLidas(r.nao_lidas)).catch(() => {});
+  }, [u.is_dev, rota]);
 
   useEffect(() => { document.title = `${TITULOS[rota.pagina] ?? 'MyFlux'} · MyFlux Preventivas`; }, [rota]);
   useEffect(() => setMenuAberto(false), [rota]);
@@ -159,6 +169,7 @@ export default function Shell() {
                 <button key={n.key} type="button" className="nav-item" aria-current={rota.tipo === 'admin' && rota.pagina === n.key ? 'page' : undefined}
                   onClick={() => irPara({ tipo: 'admin', pagina: PAGINAS_ADMIN.find((p) => p === n.key)! })}>
                   <Icon name={n.icon} size={17} />{n.label}
+                  {n.key === 'mensagens' && naoLidas > 0 && <span className="count" aria-label={`${naoLidas} não lidas`}>{naoLidas}</span>}
                 </button>
               ))}
             </nav>
@@ -206,7 +217,7 @@ export default function Shell() {
         <main className="page" id="conteudo" tabIndex={-1}>
           {proibida ? null : rota.tipo === 'admin' ? (
             !u.is_dev ? null :
-            rota.pagina === 'usuarios' ? <UsersPage /> : <UtilizacaoPage />
+            rota.pagina === 'usuarios' ? <UsersPage /> : rota.pagina === 'mensagens' ? <MensagensPage onChanged={setNaoLidas} /> : <UtilizacaoPage />
           ) : rota.tipo === 'geral' ? <SuportePage /> : client && unidadeAtual ? (
             <UnidadeConteudo key={unidadeAtual.codigo} codigo={unidadeAtual.codigo} client={client} pagina={rota.pagina}
               periodo={periodo} setCount={setCount} irPara={(p) => irPara({ tipo: 'unidade', unidade: unidadeAtual.codigo, pagina: p })} />
