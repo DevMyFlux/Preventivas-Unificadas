@@ -195,8 +195,8 @@ function Transferencias({ itens, carregando, erro, nota, onSalvar, onRecarregar 
   return (
     <>
       <Alert tone="info">
-        Transferências de responsável <b>observadas</b> pelo sistema entre leituras do Neovero (o Neovero só informa o responsável atual).
-        {nota ? ` ${nota}` : ''} O motivo é informado por uma pessoa.
+        Transferências de responsável <b>observadas</b> pelo sistema (o Neovero só informa o responsável atual).
+        {nota ? ` ${nota}` : ' O motivo é anotado por uma pessoa.'}
       </Alert>
       {itens.length === 0 ? <EmptyState icon="activity" title="Nenhuma transferência observada ainda" /> : (
         <div className="table-wrap">
