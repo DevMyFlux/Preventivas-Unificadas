@@ -42,14 +42,20 @@
   (`npm audit` completo ainda lista 6 achados **só de ferramentas de build/teste** — vite/vitest/esbuild — que exigem
   upgrade *major*; não vão para a imagem de produção.)
 
-## Sugestões e Suporte (e-mail)
+## Sugestões e Suporte
 
-- `POST /api/suporte` (qualquer usuário autenticado; CSRF obrigatório) envia a mensagem por **SMTP** para
+- **Entrega padrão = caixa interna** (`SUPORTE_ENTREGA=caixa`): `POST /api/suporte` (qualquer usuário autenticado; CSRF
+  obrigatório) grava a mensagem em `suporte_solicitacoes` (status `recebida`) e **nenhum e-mail é enviado**. Só o **Dev**
+  lê e trata (`GET /api/admin/suporte`, `/suporte/contagem`, `PATCH /api/admin/suporte/{id}` com nova/lida/resolvida —
+  quem e quando ficam registrados; filtros por situação/tipo/unidade; paginação). Usuário comum e anônimo recebem 403/401.
+  A tela **Mensagens** (menu Administração) mostra o contador de novas, atualizado ao navegar (sem polling, para não manter
+  a sessão viva). A mensagem completa não vai para a auditoria (só tipo e tamanho); mudanças de situação são auditadas.
+- **Modo e-mail (opcional, adiado):** com `SUPORTE_ENTREGA=email` envia por **SMTP** para
   `dev.tech@myflux.ai` (`SUPORTE_DESTINO`), com *Reply-To* = e-mail informado (validado, sem CR/LF).
 - **Credenciais só no ambiente** (`SMTP_USER`, `SMTP_PASSWORD` = senha de app do Gmail, `SMTP_HOST`/`SMTP_PORT`/`SMTP_FROM`
   opcionais) ou secret manager. Nunca no frontend, no GitHub, em resposta de API, em log ou na auditoria.
-  **Sem `SMTP_USER`/`SMTP_PASSWORD` o endpoint responde 503 `suporte_nao_configurado` e a tela avisa que a mensagem NÃO foi
-  enviada — nada é simulado.** `GET /api/suporte/status` só informa `configurado: true|false`.
+  **No modo e-mail, sem `SMTP_USER`/`SMTP_PASSWORD` o endpoint responde 503 `suporte_nao_configurado` e a tela avisa que a
+  mensagem NÃO foi enviada — nada é simulado.** `GET /api/suporte/status` só informa `configurado: true|false`.
 - Proteções: validação (nome 2–120, e-mail, tipo ∈ sugestão/problema/melhoria, mensagem 10–5000), caracteres de controle
   removidos, corpo máx. 32 KB, **5 envios/hora por usuário** (`SUPORTE_LIMITE_POR_HORA`), mensagem idêntica em 10 min =
   409, botão trava durante o envio. A mensagem é gravada antes do envio (`suporte_solicitacoes`: `enviando` → `enviada` |

@@ -30,7 +30,7 @@ _SEM_AUDITORIA = {
 }
 # Leituras do painel administrativo não são auditadas (o Dev consultando logs não deve
 # poluir o próprio histórico de uso); mutações e exportações administrativas são.
-_RE_ADMIN_LEITURA = re.compile(r"^/api/admin/(audit(/summary)?|sessions|usage|users|assignments)?/?$")
+_RE_ADMIN_LEITURA = re.compile(r"^/api/admin/(audit(/summary)?|sessions|usage|users|assignments|suporte(/contagem)?)?/?$")
 
 
 def ip_cliente() -> str | None:

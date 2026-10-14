@@ -24,7 +24,7 @@ auditoria, banco, runbook).
 | Neovero | Credenciais só por ambiente; paginação paralela; falhas tratadas (502/503) sem dados parciais; fila de atribuição com aprovação (escrita **desligada** por padrão) |
 | Código | Duas unidades × ~700 linhas de rotas duplicadas → um blueprint único (`core/unit_blueprint.py`); regras críticas em serviços (`core/regras/*`, `core/preventivas.py`) |
 | Sessão | Logout automático após **25 min** sem atividade válida, decidido no servidor (aviso 2 min antes, todas as abas, auditado) |
-| Suporte | “Sugestões e Suporte” envia e-mail via SMTP (credenciais só no ambiente; sem elas, responde “não configurado”) |
+| Suporte | “Sugestões e Suporte” grava na **caixa de mensagens** da plataforma (só Dev lê/trata); e-mail via SMTP é opcional (`SUPORTE_ENTREGA=email`) |
 | Utilização (Dev) | Tempo de sessão × ativo × ocioso, ativos agora, sem utilização registrada (com critérios), ficha do usuário, desbloqueio |
 | Cargos (HETRIN) | Cargo exigido por plano, alternativas explícitas, desvios sinalizados, histórico de transferências |
 | Frontend | Interface nova (tema claro/escuro, navegação lateral, KPIs clicáveis, seletor de dias, estados de carregamento/erro/vazio, acessibilidade) |

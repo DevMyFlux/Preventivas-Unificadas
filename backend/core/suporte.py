@@ -114,8 +114,8 @@ def _erro(codigo: str, mensagem: str, status: int, **extra):
 
 @bp.route("/status", methods=["GET"])
 def status():
-    """Só diz SE está configurado (nunca expõe host, usuário ou senha)."""
-    return jsonify({"configurado": settings.suporte_configurado, "tipos": TIPOS,
+    """Só diz SE está pronto e COMO a mensagem é entregue (nunca expõe host, usuário ou senha)."""
+    return jsonify({"configurado": settings.suporte_configurado, "entrega": settings.suporte_entrega, "tipos": TIPOS,
                     "limites": {"mensagem_max": MSG_MAX, "mensagem_min": MSG_MIN, "nome_max": NOME_MAX}})
 
 
@@ -133,7 +133,8 @@ def enviar():
         return _erro("validacao", e.mensagem, 400, campo=e.campo)
     g.audit_details = {"tipo": dados["tipo"], "tamanho": len(dados["mensagem"])}
 
-    if not settings.suporte_configurado:
+    caixa = settings.suporte_entrega == "caixa"
+    if not caixa and not settings.suporte_configurado:
         # Não simula: informa que o envio de e-mail não está configurado neste ambiente. Nada é gravado
         # como "enviado"; o texto fica com o usuário na tela.
         log.warning("Suporte: SMTP não configurado (defina SMTP_USER/SMTP_PASSWORD no ambiente)")
@@ -146,12 +147,12 @@ def enviar():
     with sessao() as s:
         recentes = s.scalar(select(func.count()).select_from(SuporteSolicitacao).where(
             SuporteSolicitacao.user_id == user.id, SuporteSolicitacao.ts >= agora - timedelta(hours=1),
-            SuporteSolicitacao.status.in_(("enviando", "enviada", "falha")))) or 0
+            SuporteSolicitacao.status.in_(("enviando", "recebida", "enviada", "falha")))) or 0
         if recentes >= settings.suporte_limite_por_hora:
             return _erro("limite_excedido", "Muitas mensagens em pouco tempo. Tente novamente mais tarde.", 429)
         duplicada = s.scalar(select(func.count()).select_from(SuporteSolicitacao).where(
             SuporteSolicitacao.user_id == user.id, SuporteSolicitacao.msg_hash == h,
-            SuporteSolicitacao.ts >= agora - JANELA_DUPLICATA, SuporteSolicitacao.status.in_(("enviando", "enviada"))))
+            SuporteSolicitacao.ts >= agora - JANELA_DUPLICATA, SuporteSolicitacao.status.in_(("enviando", "recebida", "enviada"))))
         if duplicada:
             return _erro("duplicada", "Esta mensagem já foi enviada. Aguarde o retorno do suporte.", 409)
         reg = SuporteSolicitacao(user_id=user.id, username=user.username, unit=user.unit, nome=dados["nome"],
@@ -160,6 +161,14 @@ def enviar():
         s.add(reg)
         s.flush()
         reg_id = reg.id
+
+    if caixa:
+        # Caixa interna: a mensagem já está gravada e fica visível só para o Dev. Nenhum e-mail é enviado.
+        with sessao() as s:
+            s.get(SuporteSolicitacao, reg_id).status = "recebida"
+        g.audit_details = {**g.audit_details, "entrega": "caixa", "id": reg_id}
+        return jsonify({"ok": True, "id": reg_id, "entrega": "caixa",
+                        "mensagem": "Mensagem registrada. A administração vai ler na própria plataforma."}), 201
 
     try:
         enviar_smtp(montar_email(dados, user, user.unit, agora))
@@ -176,4 +185,4 @@ def enviar():
     with sessao() as s:
         s.get(SuporteSolicitacao, reg_id).status = "enviada"
     g.audit_details = {**g.audit_details, "enviado": True, "id": reg_id}
-    return jsonify({"ok": True, "id": reg_id, "mensagem": "Mensagem enviada ao suporte. Responderemos no e-mail informado."}), 201
+    return jsonify({"ok": True, "id": reg_id, "entrega": "email", "mensagem": "Mensagem enviada ao suporte. Responderemos no e-mail informado."}), 201

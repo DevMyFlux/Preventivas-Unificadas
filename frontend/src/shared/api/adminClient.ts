@@ -1,6 +1,7 @@
 /** Cliente da área administrativa (somente Dev; o backend recusa os demais com 403). */
 import { download, get, patch, post } from './http';
 import type { Query } from './http';
+import type { MensagemSuporte, MensagensPage, SituacaoMensagem } from './types';
 import type { AdminUser, AuditFilters, AuditPage, SessionRow, UsageResponse, UsageSummary, UserDetail } from './types';
 
 export function auditQuery(f: AuditFilters): Query {
@@ -23,6 +24,10 @@ export const adminApi = {
   createUser: (u: { username: string; password: string; display_name: string; unit: string; must_change_password: boolean }) =>
     post<AdminUser>('/api/admin/users', u),
   updateUser: (id: number, u: { display_name?: string; unit?: string }) => patch<AdminUser>(`/api/admin/users/${id}`, u),
+  messages: (q: { situacao?: string; tipo?: string; unit?: string; page?: number; pageSize?: number }) =>
+    get<MensagensPage>('/api/admin/suporte', { situacao: q.situacao, tipo: q.tipo, unit: q.unit, page: q.page, page_size: q.pageSize }),
+  messagesCount: () => get<{ nao_lidas: number }>('/api/admin/suporte/contagem'),
+  setMessageStatus: (id: number, situacao: SituacaoMensagem) => patch<MensagemSuporte>(`/api/admin/suporte/${id}`, { situacao }),
   userDetail: (id: number) => get<UserDetail>(`/api/admin/users/${id}`),
   unlockUser: (id: number) => post<AdminUser>(`/api/admin/users/${id}/unlock`),
   setActive: (id: number, active: boolean) => post<AdminUser>(`/api/admin/users/${id}/active`, { active }),

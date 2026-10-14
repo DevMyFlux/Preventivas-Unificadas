@@ -14,6 +14,12 @@ VALIDO = {"nome": "Ana Souza", "email": "ana@hospital.com", "tipo": "problema",
 SEGREDO = "senha-de-app-super-secreta"
 
 
+@pytest.fixture(autouse=True)
+def _entrega_por_email(monkeypatch):
+    """Estes testes cobrem o modo `email` (SMTP); a caixa interna (padrão) tem arquivo próprio."""
+    monkeypatch.setenv("SUPORTE_ENTREGA", "email")
+
+
 @pytest.fixture()
 def ana(app, criar_usuarios):
     c = app.test_client()

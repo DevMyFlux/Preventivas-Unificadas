@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 export const PAGINAS_UNIDADE = ['preventivas', 'planos', 'colaboradores', 'revisao', 'atribuicoes', 'regras'] as const;
 export type PaginaUnidade = (typeof PAGINAS_UNIDADE)[number];
 
-export const PAGINAS_ADMIN = ['usuarios', 'utilizacao'] as const;
+export const PAGINAS_ADMIN = ['usuarios', 'utilizacao', 'mensagens'] as const;
 // links antigos (#/admin/auditoria, #/admin/relatorios) continuam funcionando: ambos viraram abas de Utilização
 const ADMIN_LEGADO: Record<string, PaginaAdmin> = { auditoria: 'utilizacao', relatorios: 'utilizacao' };
 export type PaginaAdmin = (typeof PAGINAS_ADMIN)[number];
