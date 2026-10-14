@@ -15,7 +15,7 @@ export function toneDoResultado(r: AuditEvent['result']): 'success' | 'warning' 
   return r === 'success' ? 'success' : r === 'denied' ? 'warning' : 'danger';
 }
 
-export default function AuditPage() {
+export default function AuditPage({ embutido = false }: { embutido?: boolean }) {
   const toast = useToast();
   const [dataIni, setDataIni] = useState(addDays(todayISO(), -7));
   const [dataFim, setDataFim] = useState(todayISO());
@@ -47,15 +47,23 @@ export default function AuditPage() {
 
   return (
     <div className="stack">
-      <PageHead
-        title="Histórico de utilização"
-        subtitle="Trilha de auditoria append-only: quem fez o quê, onde, quando e com qual resultado. Senhas e tokens nunca são gravados."
-        actions={<>
+      {embutido ? (
+        <div className="row">
           <Button icon="refresh" onClick={reload} loading={loading}>Atualizar</Button>
           <Button icon="download" onClick={() => exportar('xlsx')} loading={exportando}>Excel</Button>
           <Button icon="download" onClick={() => exportar('csv')} disabled={exportando}>CSV</Button>
-        </>}
-      />
+        </div>
+      ) : (
+        <PageHead
+          title="Histórico de utilização"
+          subtitle="Trilha de auditoria append-only: quem fez o quê, onde, quando e com qual resultado. Senhas e tokens nunca são gravados."
+          actions={<>
+            <Button icon="refresh" onClick={reload} loading={loading}>Atualizar</Button>
+            <Button icon="download" onClick={() => exportar('xlsx')} loading={exportando}>Excel</Button>
+            <Button icon="download" onClick={() => exportar('csv')} disabled={exportando}>CSV</Button>
+          </>}
+        />
+      )}
 
       <section className="card row" aria-label="Filtros">
         <div className="field"><label htmlFor="a-ini">De</label><input id="a-ini" type="date" className="input" value={dataIni} max={dataFim} onChange={(e) => mudar(setDataIni)(e.target.value)} /></div>
@@ -78,7 +86,7 @@ export default function AuditPage() {
       {error && <Alert tone="danger" action={<Button size="sm" onClick={reload}>Tentar de novo</Button>}>{error}</Alert>}
       {loading && !data ? <TableSkeleton rows={8} cols={7} /> : data && data.itens.length === 0 ? (
         <EmptyState icon="activity" title="Nenhum evento no período">
-          Ausência de eventos não significa que ninguém usou o sistema fora do período coletado — veja a nota em Relatórios.
+          Ausência de eventos não significa que ninguém usou o sistema fora do período coletado — veja os critérios em Visão geral.
         </EmptyState>
       ) : data ? (
         <>

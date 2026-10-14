@@ -8,25 +8,36 @@ export class ApiError extends Error {
   status: number;
   codigo?: string;
   campo?: string;
+  /** 401: por que a sessão caiu (inatividade, tempo_maximo, conta_desativada…), conforme o servidor */
+  motivo?: string;
+  /** 401: a requisição que falhou ALTERAVA dados (POST/PATCH/DELETE) — portanto não foi salva */
+  mutacao?: boolean;
 
-  constructor(status: number, mensagem: string, codigo?: string, campo?: string) {
+  constructor(status: number, mensagem: string, codigo?: string, campo?: string, motivo?: string, mutacao?: boolean) {
     super(mensagem);
     this.name = 'ApiError';
     this.status = status;
     this.codigo = codigo;
     this.campo = campo;
+    this.motivo = motivo;
+    this.mutacao = mutacao;
   }
 }
 
 let csrfToken = '';
-let onUnauthorized: (() => void) | null = null;
+export interface InfoNaoAutenticado {
+  mensagem: string;
+  motivo?: string;
+  mutacao: boolean;
+}
+let onUnauthorized: ((info: InfoNaoAutenticado) => void) | null = null;
 
 export function setCsrfToken(token: string): void {
   csrfToken = token;
 }
 
 /** Registrado pelo AuthProvider: chamado quando uma requisição autenticada volta 401 (sessão expirada). */
-export function setUnauthorizedHandler(fn: (() => void) | null): void {
+export function setUnauthorizedHandler(fn: ((info: InfoNaoAutenticado) => void) | null): void {
   onUnauthorized = fn;
 }
 
@@ -78,16 +89,20 @@ async function send(method: string, path: string, opts: Options = {}): Promise<R
     let mensagem = `Erro ${res.status}`;
     let codigo: string | undefined;
     let campo: string | undefined;
+    let motivo: string | undefined;
+    let mutacao = method !== 'GET';
     try {
       const corpo = await res.clone().json();
       mensagem = corpo.erro ?? mensagem;
       codigo = corpo.codigo;
       campo = corpo.campo;
+      motivo = corpo.motivo;
+      if (typeof corpo.mutacao === 'boolean') mutacao = corpo.mutacao;
     } catch {
       /* corpo não-JSON: mantém a mensagem genérica */
     }
-    if (res.status === 401 && !opts.skipUnauthorized) onUnauthorized?.();
-    throw new ApiError(res.status, mensagem, codigo, campo);
+    if (res.status === 401 && !opts.skipUnauthorized) onUnauthorized?.({ mensagem, motivo, mutacao });
+    throw new ApiError(res.status, mensagem, codigo, campo, motivo, mutacao);
   }
   return res;
 }

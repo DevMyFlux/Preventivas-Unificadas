@@ -9,7 +9,7 @@ from core.unidades import UNIDADES
 
 bp = Blueprint("auth", __name__, url_prefix="/api")
 
-_MODULOS_VALIDOS = {"planos", "preventivas", "colaboradores", "distribuicao", "regras", "admin", "login"}
+_MODULOS_VALIDOS = {"planos", "preventivas", "colaboradores", "distribuicao", "regras", "admin", "login", "suporte"}
 
 
 def serializar_usuario(user) -> dict:
@@ -73,12 +73,22 @@ def me():
     return jsonify({"user": serializar_usuario(g.user), "csrf_token": g.auth_session.csrf_token})
 
 
+@bp.route("/auth/session")
+def estado_sessao():
+    """Estado da sessão SEM contar como atividade (a guarda não a "toca"): o frontend consulta
+    periodicamente para exibir o aviso de expiração e detectar, em qualquer aba, que a sessão caiu."""
+    return jsonify({
+        "expira_em_s": servico.segundos_para_expirar(g.auth_session),
+        "ociosidade_max_s": settings.sessao_ociosa_minutos * 60,
+        "aviso_antes_s": 120,
+    })
+
+
 @bp.route("/auth/ping", methods=["POST"])
 def ping():
-    """Heartbeat do frontend: confirma que a aba está em uso (usuário interagiu
-    recentemente). Atualiza `last_activity_at`; não gera evento de auditoria."""
-    servico.registrar_atividade(g.auth_session.id)
-    return jsonify({"ok": True})
+    """Batimento do frontend. Só renova a sessão se o corpo trouxer `interagiu: true` (houve clique/
+    tecla/rolagem desde o último batimento) — a decisão é do backend (ver `_deve_tocar`)."""
+    return jsonify({"ok": True, "expira_em_s": servico.segundos_para_expirar(g.auth_session)})
 
 
 @bp.route("/auth/activity", methods=["POST"])

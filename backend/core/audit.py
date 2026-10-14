@@ -69,13 +69,14 @@ def registrar(
     ip: str | None = None,
     user_agent: str | None = None,
     details: dict | None = None,
+    ts: datetime | None = None,
 ) -> None:
     """Grava um evento. `user` (objeto User) preenche user_id/username/unit se não
     informados explicitamente."""
     try:
         with sessao() as s:
             s.add(AuditLog(
-                ts=agora_utc(),
+                ts=ts or agora_utc(),
                 user_id=getattr(user, "id", None),
                 username=username or getattr(user, "username", None),
                 unit=unit if unit is not None else getattr(user, "unit", None),

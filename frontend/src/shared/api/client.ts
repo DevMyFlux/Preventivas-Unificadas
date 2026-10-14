@@ -7,6 +7,7 @@ import type { Query } from './http';
 import type {
   AtribuicoesResponse,
   AuthState,
+  EstadoSessao,
   ColaboradorDetail,
   ColaboradorResponse,
   HabilidadeResponse,
@@ -17,6 +18,10 @@ import type {
   RevisaoResponse,
   StatusColaborador,
   StatusProposta,
+  SuporteStatus,
+  Transferencia,
+  TransferenciasResponse,
+  TipoSuporte,
   UnitInfo,
 } from './types';
 
@@ -78,6 +83,9 @@ export function buildUnitClient(prefix: UnitApiPrefix) {
         `${prefix}/colaborador/${enc(nome)}/habilidades/${enc(habilidadeId)}`),
 
     fetchRevisao: () => get<RevisaoResponse>(`${prefix}/revisao`),
+    fetchTransferencias: (os?: string) => get<TransferenciasResponse>(`${prefix}/transferencias`, { os }),
+    anotarMotivoTransferencia: (id: number, motivo: string) =>
+      put<Transferencia>(`${prefix}/transferencias/${id}/motivo`, { motivo }),
 
     fetchRegras: () => get<RegrasResponse>(`${prefix}/regras`),
     confirmarRegra: (alias: string, funcionario: string) =>
@@ -108,9 +116,20 @@ export const authApi = {
     post<AuthState>('/api/auth/login', { username, password }, { skipUnauthorized: true }),
   me: () => get<AuthState>('/api/auth/me'),
   logout: () => post<{ ok: boolean }>('/api/auth/logout'),
-  ping: () => post<{ ok: boolean }>('/api/auth/ping'),
+  /** Consulta o prazo da sessão SEM renová-la (o servidor não conta esta chamada como atividade). */
+  sessao: () => get<EstadoSessao>('/api/auth/session'),
+  /** Batimento: só renova a sessão quando `interagiu` é true (houve clique/tecla/rolagem de verdade). */
+  ping: (interagiu = false) => post<{ ok: boolean; expira_em_s: number }>('/api/auth/ping', { interagiu }),
   activity: (module: string, unit?: string) => post<{ ok: boolean }>('/api/auth/activity', { module, unit }),
   changePassword: (currentPassword: string, newPassword: string) =>
     post<{ ok: boolean; relogin: boolean }>('/api/auth/password',
       { current_password: currentPassword, new_password: newPassword }),
+};
+
+// ── Sugestões e Suporte ────────────────────────────────────────────────────
+
+export const suporteApi = {
+  status: () => get<SuporteStatus>('/api/suporte/status'),
+  enviar: (m: { nome: string; email: string; tipo: TipoSuporte; mensagem: string }) =>
+    post<{ ok: boolean; id: number; mensagem: string }>('/api/suporte', m),
 };

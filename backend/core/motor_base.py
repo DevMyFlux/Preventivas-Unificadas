@@ -6,6 +6,7 @@ import re
 
 from core.regras import elegibilidade as _eleg
 from core.regras import limites as _limites
+from core.regras.cargos import familia_do_cargo as _familia_do_cargo
 
 # ── Pesos e constantes ────────────────────────────────────────────────────────
 SCORE_FUNCAO_COMPATIVEL = 100
@@ -443,6 +444,7 @@ def indicar_responsavel(
     ocupacao=None,
     nomes_obrigatorios=None,
     diagnostico: dict | None = None,
+    familias_cargo: tuple | None = None,
 ):
     """
     Calcula o responsável recomendado para uma tarefa.
@@ -519,9 +521,18 @@ def indicar_responsavel(
     na lista E elegível/disponível/com vaga no dia; se ninguém restar, devolve `None` com
     `diagnostico["motivo"]` explicando (indisponível ou limite diário).
 
+    `familias_cargo` (opcional): `(principais, alternativas)` — famílias de cargo
+    (core.regras.cargos) que podem executar esta ocorrência. É um gate ESTRITO: só concorre
+    quem é de uma família permitida, disponível e com vaga no dia; os principais têm
+    prioridade e os alternativos só entram se nenhum principal puder (o chamador é quem avisa
+    que um alternativo foi usado). Se ninguém restar devolve `None` com
+    `diagnostico["motivo"] = "cargo_sem_habilitado"` (ou `limite_diario`) — nunca recua para um
+    cargo não permitido. `nomes_obrigatorios` (regra nominal) tem precedência sobre este gate.
+
     `diagnostico` (opcional): dict mutável preenchido com `motivo` quando não há
     candidato — `sem_colaboradores`, `nenhum_elegivel`, `nenhum_compativel_disponivel`,
-    `limite_diario`, `regra_nominal_indisponivel`, `regra_nominal_limite_diario`.
+    `limite_diario`, `regra_nominal_indisponivel`, `regra_nominal_limite_diario`,
+    `cargo_sem_habilitado`.
     """
     diagnostico = diagnostico if diagnostico is not None else {}
     if colaboradores is None or colaboradores.empty:
@@ -581,6 +592,7 @@ def indicar_responsavel(
             "funcao_compativel": _cargo_compativel(cargo.lower(), categoria),
             "turno_compativel": _turno_compativel(turno_col, hora_ref),
             "tier_adequado": _tier_adequado(complexidade) in (None, _tier_cargo(cargo.lower())),
+            "familia": _familia_do_cargo(cargo),
             "especialidade": _limites.especialidade_do_cargo(cargo),
             "ocupacao_dia": ocupacao.total(nome, data_ref) if ocupacao is not None else None,
             "limite_dia": _limites.limite_do_cargo(cargo),
@@ -612,6 +624,28 @@ def indicar_responsavel(
         principal = {"nome": ordenados[0], **disponiveis[ordenados[0]]}
         apoio = {"nome": ordenados[1], **disponiveis[ordenados[1]]} if len(ordenados) > 1 else None
         return principal, apoio, scores
+
+    # Regra de CARGO por plano (estrita): principais primeiro; alternativos só se nenhum principal
+    # puder assumir (disponível e com vaga no dia). Nunca recua para um cargo não permitido.
+    if familias_cargo is not None:
+        principais, alternativas = familias_cargo
+
+        def _pool(familias):
+            pool = {n: s for n, s in disponiveis.items() if s["familia"] in familias}
+            return pool, {n: s for n, s in pool.items() if s["com_vaga"]}
+
+        pool_p, vaga_p = _pool(principais)
+        pool_a, vaga_a = _pool(alternativas) if alternativas else ({}, {})
+        if vaga_p:
+            disponiveis = vaga_p
+        elif vaga_a:
+            disponiveis = vaga_a
+        elif pool_p or pool_a:
+            diagnostico["motivo"] = "limite_diario"
+            return None, None, scores
+        else:
+            diagnostico["motivo"] = "cargo_sem_habilitado"
+            return None, None, scores
 
     # Balanceamento nunca pode fazer alguém tecnicamente inadequado ganhar de alguém
     # qualificado. Sem isso, penalidade de carga sem teto podia empatar (ou até

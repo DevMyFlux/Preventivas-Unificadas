@@ -14,11 +14,15 @@ MODELO DE OCORRÊNCIA
 STATUS DE EXECUÇÃO (campo `status`) e ATRASO (campo booleano `atrasada`)
     Concluída            OS Fechada (situação 3)
     Em andamento         OS em andamento (situação 2)
+    Parada               OS em andamento (situação 2) com `dataHoraParada` preenchida e sem
+                         `dataHoraFuncionamento` (ex.: aguardando garantia). É só uma distinção de
+                         EXIBIÇÃO: a situação real da OS no Neovero continua "Em andamento" e nada é alterado.
     Pendente             OS Aberta (situação 1)
     Cancelada            OS Cancelada (situação 4)
-    Prevista             projeção sem OS ainda, data de hoje em diante
-    Sem OS gerada        projeção sem OS, com data JÁ PASSADA — o Neovero não gerou/sincronizou
-                         a OS; isto NÃO é atraso (não há informação suficiente para afirmar)
+    Aguardando geração   projeção sem OS ainda, data de hoje em diante (futuro — a OS ainda será gerada)
+    Sem OS – verificar   projeção sem OS, com data JÁ PASSADA — o Neovero não gerou/sincronizou
+                         a OS; precisa de conferência humana, mas isto NÃO é atraso (não há
+                         informação suficiente para afirmar)
   `atrasada = True` somente para OS REAL ainda não concluída (Pendente ou Em andamento)
   cuja data prevista é anterior a HOJE (data local, BRT). Concluída/Cancelada nunca atrasam.
 
@@ -41,6 +45,7 @@ from core.neovero_client import SIT_MAP
 from core.planejamento import detectar_paridade, detectar_turno, expandir_ocorrencias
 from core.regras import elegibilidade as eleg
 from core.regras import limites
+from core.regras.cargos import violacao as violacao_cargo
 from core.regras.atribuicao import ContextoOcorrencia, aplicar_regras, paridade_do_dia
 from core.regras.nomes import encontrar_no_cadastro
 
@@ -49,9 +54,12 @@ ST_CONCLUIDA = "Concluída"
 ST_EM_ANDAMENTO = "Em andamento"
 ST_PENDENTE = "Pendente"
 ST_CANCELADA = "Cancelada"
-ST_PREVISTA = "Prevista"
-ST_SEM_OS = "Sem OS gerada"
-STATUS_ORDEM = [ST_PENDENTE, ST_EM_ANDAMENTO, ST_CONCLUIDA, ST_PREVISTA, ST_SEM_OS, ST_CANCELADA]
+ST_PARADA = "Parada"
+ST_PREVISTA = "Aguardando geração"
+ST_SEM_OS = "Sem OS – verificar"
+STATUS_ORDEM = [ST_PENDENTE, ST_EM_ANDAMENTO, ST_PARADA, ST_CONCLUIDA, ST_PREVISTA, ST_SEM_OS, ST_CANCELADA]
+# status em que a OS está viva (precisa de executante válido)
+STATUS_ABERTOS = (ST_PENDENTE, ST_EM_ANDAMENTO, ST_PARADA)
 
 RESP_ATRIBUIDA = "Atribuída"
 RESP_SEM = "Sem responsável"
@@ -68,6 +76,7 @@ MOTIVOS_TEXTO = {
     "regra_nominal_limite_diario": "O(s) responsável(is) da regra já atingiram o limite diário — requer intervenção.",
     "regra_pendente": "Regra de atribuição aguardando confirmação de nome.",
     "nenhum_apto": "Nenhum profissional apto encontrado.",
+    "cargo_sem_habilitado": "Nenhum profissional do cargo exigido pelo plano está disponível nesta data/turno — requer intervenção.",
 }
 
 
@@ -93,8 +102,9 @@ def _hora_de(valor) -> int:
         return 8
 
 
-def classificar_status(situacao_os: int | None, data_prev: date, hoje: date) -> tuple[str, bool]:
-    """(status, atrasada) para uma ocorrência. `situacao_os` None = sem OS (projeção)."""
+def classificar_status(situacao_os: int | None, data_prev: date, hoje: date, parada: bool = False) -> tuple[str, bool]:
+    """(status, atrasada) para uma ocorrência. `situacao_os` None = sem OS (projeção).
+    `parada` só distingue a EXIBIÇÃO de uma OS em andamento (situação 2) que está parada."""
     if situacao_os is None:
         return (ST_PREVISTA, False) if data_prev >= hoje else (ST_SEM_OS, False)
     if situacao_os == 3:
@@ -102,7 +112,7 @@ def classificar_status(situacao_os: int | None, data_prev: date, hoje: date) -> 
     if situacao_os == 4:
         return ST_CANCELADA, False
     if situacao_os == 2:
-        return ST_EM_ANDAMENTO, data_prev < hoje
+        return (ST_PARADA if parada else ST_EM_ANDAMENTO), data_prev < hoje
     return ST_PENDENTE, data_prev < hoje   # situação 1 (ou desconhecida ≈ aberta)
 
 
@@ -113,6 +123,7 @@ class ContextoGeracao:
     indicar: object                      # função(colaboradores, hist_tipo, hist_ativo, carga, tipo, setor, ativo, data, hora, **kw)
     regras_resolvidas: dict = field(default_factory=dict)
     nomes_permitidos_fn: object = None   # (descricao_plano, dia_par) -> set|None (escala nomeada HETRIN)
+    regra_cargo_fn: object = None        # (descricao_plano) -> RegraCargo|None (cargo exigido pelo plano; por unidade)
     hist_tipo: dict = field(default_factory=dict)
     hist_ativo: dict = field(default_factory=dict)
     carga: dict = field(default_factory=dict)
@@ -152,6 +163,11 @@ def _contexto_regra(desc: str, oficina: str, tipo_id, periodicidade, unidade_tem
         data=dia, turno=detectar_turno(desc or ""))
 
 
+def os_esta_parada(o: dict) -> bool:
+    """OS em andamento (situação 2) com parada registrada e sem retorno ao funcionamento."""
+    return o.get("situacao") == 2 and bool(o.get("dataHoraParada")) and not o.get("dataHoraFuncionamento")
+
+
 def _ocorrencia_de_os(o: dict, hoje: date) -> dict | None:
     plano = o.get("planoManutencao") or {}
     if not o.get("planoManutencaoId") and not plano:
@@ -160,7 +176,8 @@ def _ocorrencia_de_os(o: dict, hoje: date) -> dict | None:
     if dia is None:
         return None
     sit = o.get("situacao")
-    status, atrasada = classificar_status(sit, dia, hoje)
+    parada = os_esta_parada(o)
+    status, atrasada = classificar_status(sit, dia, hoje, parada)
     setor = ((o.get("setor") or {}).get("nome") or "").strip()
     equip = ((o.get("equipamento") or {}).get("nome") or "").strip()
     desc = plano.get("descricao") or ""
@@ -179,6 +196,11 @@ def _ocorrencia_de_os(o: dict, hoje: date) -> dict | None:
         "_unidade_tempo": plano.get("periodicidadeTempoUnidade"),
         "_hora": _hora_de(o.get("dataHoraAbertura")),
         "_sit": sit,
+        "parada_desde": o.get("dataHoraParada") if parada else None,
+        # situação como o Neovero a descreve (ex.: "OS em Pendência - Interna") + observação da OS em andamento:
+        # só exibição, para distinguir "aguardando manutenção/garantia" sem reclassificar nada no Neovero
+        "situacao_neovero": (o.get("situacaoDescricaoCompleta") or o.get("situacaoDescricao") or None) if sit == 2 else None,
+        "observacao_os": ((o.get("observacao") or "").strip()[:200] or None) if sit == 2 else None,
         "id": f"os:{o.get('numero')}",
         "plano": desc,
         "tipo": ((o.get("tipoManutencao") or {}).get("descricao") or "").strip(),
@@ -253,6 +275,12 @@ def _casar_projecoes_com_os(reais: list[dict], projecoes: list[dict]) -> list[di
     """Descarta projeções que já têm OS real (mesmo plano + equipamento/setor, mesmo dia ou
     até 3 dias de diferença para planos não-diários — o Neovero pode abrir a OS com
     antecedência). Cada OS real absorve no máximo UMA projeção."""
+    # Uma projeção que carrega a OS ABERTA vinculada ao item (mesmo número de uma OS real já listada) é a MESMA
+    # manutenção dessa OS — mesmo que as datas difiram (data base antiga do item × data de abertura da OS).
+    # Sem isto a OS aparecia duas vezes (real + projeção) e inflava pendentes e atrasadas (achado com dados
+    # reais da HMB: 113 OS duplicadas, 80 atrasadas a mais).
+    numeros_reais = {r["os_vinculada"] for r in reais if r.get("os_vinculada") not in (None, "", "—")}
+    projecoes = [pr for pr in projecoes if pr.get("os_vinculada") in (None, "", "—") or pr["os_vinculada"] not in numeros_reais]
     indice: dict[tuple, list[dict]] = defaultdict(list)
     for r in reais:
         chave_loc = r["_equip_id"] if r["_equip_id"] else ("S", r["_setor_id"])
@@ -274,6 +302,59 @@ def _casar_projecoes_com_os(reais: list[dict], projecoes: list[dict]) -> list[di
         else:
             restantes.append(pr)
     return restantes
+
+
+RESP_NAO_RESOLVIDO = "Não identificado"
+
+
+def planos_com_responsavel_invalido(planos: list[dict], os_abertas: list[dict], ctx: ContextoGeracao) -> list[dict]:
+    """Planos ativos cujo responsável PADRÃO (o Neovero cria cada OS com ele) não é um executante válido —
+    gestor, genérico, desligado, bloqueado ou sem nome identificável. Corrigir o plano evita que as próximas
+    OS nasçam já em revisão. Só lista: nada é alterado no Neovero.
+
+    O plano só traz `responsavelId`; o nome vem das OS abertas que carregam esse mesmo id. Sem nenhuma OS que
+    permita resolver o nome, o status é "Não identificado" (nunca se presume que seja válido ou inválido)."""
+    nomes: dict = {}
+    abertas_por_plano: dict = defaultdict(int)
+    for o in os_abertas:
+        rid = o.get("responsavelId")
+        nome = ((o.get("responsavel") or {}).get("nome") or "").strip()
+        if rid and nome:
+            nomes.setdefault(rid, nome)
+        if o.get("planoManutencaoId"):
+            abertas_por_plano[o["planoManutencaoId"]] += 1
+    saida = []
+    for p in planos:
+        if p.get("ativo") is False:
+            continue
+        rid = p.get("responsavelId")
+        if not rid:
+            status, nome = RESP_SEM, None
+        elif rid not in nomes:
+            status, nome = RESP_NAO_RESOLVIDO, None
+        else:
+            nome = nomes[rid]
+            status, _ = classificar_responsavel(nome, ctx, ctx.hoje)
+        if status == RESP_ATRIBUIDA:
+            continue
+        saida.append({"plano_id": p.get("id"), "plano": p.get("descricao") or "", "responsavel_id": rid,
+                      "responsavel_nome": nome, "status": status, "os_abertas": abertas_por_plano.get(p.get("id"), 0)})
+    saida.sort(key=lambda x: (x["status"], -x["os_abertas"], x["plano"]))
+    return saida
+
+
+def _desvio_de_cargo(oc: dict, cadastro: str | None, ctx: ContextoGeracao) -> str | None:
+    """Texto do desvio quando o executante ATUAL da OS tem cargo fora do exigido pelo plano (só sinaliza —
+    nunca reatribui). Sem regra de cargo na unidade, ou sem executante identificado: None."""
+    if ctx.regra_cargo_fn is None or not cadastro or ctx.colab_todos is None or ctx.colab_todos.empty:
+        return None
+    regra = ctx.regra_cargo_fn(oc["plano"])
+    if regra is None:
+        return None
+    linhas = ctx.colab_todos[ctx.colab_todos["funcionario"] == cadastro]
+    if linhas.empty:
+        return None
+    return violacao_cargo(regra, str(linhas.iloc[0].get("cargo", "")))
 
 
 def _recomendar(oc: dict, ctx: ContextoGeracao, andares, carga_alta) -> dict:
@@ -303,6 +384,11 @@ def _recomendar(oc: dict, ctx: ContextoGeracao, andares, carga_alta) -> dict:
     if ctx.nomes_permitidos_fn is not None:
         nomes_permitidos = ctx.nomes_permitidos_fn(desc, paridade_do_dia(dia))
 
+    regra_cargo = ctx.regra_cargo_fn(desc) if ctx.regra_cargo_fn is not None else None
+    extra = {"familias_cargo": (regra_cargo.principais, regra_cargo.alternativas)} if regra_cargo else {}
+    if regra_cargo:
+        resultado["regra_cargo"] = {"id": regra_cargo.id, "descricao": regra_cargo.descricao}
+
     isento = limites.tipo_isento(oc["_tipo_id"])   # tipos isentos não consultam nem consomem o limite diário
     diag: dict = {}
     principal, apoio, _ = ctx.indicar(
@@ -310,11 +396,18 @@ def _recomendar(oc: dict, ctx: ContextoGeracao, andares, carga_alta) -> dict:
         exigir_turno=exigir_turno, andares_colaborador=andares, carga_alta=carga_alta,
         nomes_permitidos=nomes_permitidos, ocupacao=None if isento else ctx.ocupacao,
         nomes_obrigatorios=set(regra.nomes) if regra.status == "aplicada" else None,
-        diagnostico=diag,
+        diagnostico=diag, **extra,
     )
     if not principal:
-        resultado["motivo_sem_candidato"] = MOTIVOS_TEXTO.get(diag.get("motivo", ""), MOTIVOS_TEXTO["nenhum_apto"])
+        texto = MOTIVOS_TEXTO.get(diag.get("motivo", ""), MOTIVOS_TEXTO["nenhum_apto"])
+        if diag.get("motivo") == "cargo_sem_habilitado" and regra_cargo:
+            texto = (f"Nenhum {regra_cargo.texto_cargos()} disponível nesta data/turno — requer intervenção "
+                     "(o sistema não escolhe outro cargo por conta própria).")
+        resultado["motivo_sem_candidato"] = texto
         return resultado
+    if regra_cargo and principal.get("familia") in regra_cargo.alternativas:
+        resultado["alertas"].append(f"Cargo alternativo usado: nenhum {regra_cargo.texto_cargos().split(' (')[0]} "
+                                    "disponível/com vaga neste dia.")
 
     escolhidos = [principal]
     # regra com vários responsáveis (ex.: oficina AC/V em dia par): todos executam, nenhum sobrescreve o outro
@@ -371,6 +464,7 @@ def gerar_ocorrencias(
         status_resp, cadastro = classificar_responsavel(oc["responsavel_atual"], ctx, oc["_dia"])
         oc["responsavel_status"] = status_resp
         oc["responsavel_cadastro"] = cadastro
+        oc["cargo_fora_da_regra"] = _desvio_de_cargo(oc, cadastro, ctx) if oc["status"] in STATUS_ABERTOS else None
         if cadastro and oc["status"] != ST_CANCELADA and not limites.tipo_isento(oc["_tipo_id"]):
             ctx.ocupacao.registrar(cadastro, oc["_dia"], limites.chave_os(oc["os_vinculada"]))
 
@@ -382,8 +476,9 @@ def gerar_ocorrencias(
     for oc in todas:
         oc.setdefault("responsavel_status", "—")
         oc.setdefault("responsavel_cadastro", None)
-        # "Sem OS gerada" (projeção de data passada) não é acionável: nada a recomendar
-        precisa = oc["status"] in (ST_PENDENTE, ST_EM_ANDAMENTO, ST_PREVISTA)
+        oc.setdefault("cargo_fora_da_regra", None)
+        # "Sem OS – verificar" (projeção de data passada) não é acionável: nada a recomendar
+        precisa = oc["status"] in (*STATUS_ABERTOS, ST_PREVISTA)
         if oc["origem"] == "OS" and oc["responsavel_status"] == RESP_ATRIBUIDA:
             precisa = False   # já tem executante válido — não se reatribui nem se recomenda outro
         if precisa:
@@ -392,7 +487,7 @@ def gerar_ocorrencias(
             oc.update({"recomendado": None, "recomendados": [], "cargo": "", "escala": "", "score": -999,
                        "motivo_sem_candidato": None, "regra": None, "alertas": []})
         oc["revisao"] = bool(
-            (oc["origem"] == "OS" and oc["status"] in (ST_PENDENTE, ST_EM_ANDAMENTO)
+            (oc["origem"] == "OS" and oc["status"] in STATUS_ABERTOS
              and oc["responsavel_status"] != RESP_ATRIBUIDA)
         )
         oc["sem_candidato"] = bool(precisa and not oc["recomendado"])

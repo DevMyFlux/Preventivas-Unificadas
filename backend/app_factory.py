@@ -4,7 +4,7 @@ import os
 from flask import Flask, jsonify, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from core import db, migrations
+from core import db, migrations, suporte
 from core.settings import settings
 from core.auth import admin_rotas, http as auth_http, rotas as auth_rotas, servico as auth_servico
 from units.brasilandia.routes import bp as bp_br
@@ -39,6 +39,7 @@ def create_app(database_url: str | None = None, *, bootstrap: bool = True) -> Fl
 
     flask_app.register_blueprint(auth_rotas.bp)
     flask_app.register_blueprint(admin_rotas.bp)
+    flask_app.register_blueprint(suporte.bp)
     flask_app.register_blueprint(bp_gm)
     flask_app.register_blueprint(bp_br)
 

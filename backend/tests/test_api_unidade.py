@@ -111,7 +111,7 @@ def test_listagem_traz_reais_e_projecoes_com_status_e_atraso(ana, neovero):
     por_os = {i["os_vinculada"]: i for i in d["itens"] if i["origem"] == "OS"}
     assert por_os["1"]["status"] == "Concluída" and por_os["2"]["atrasada"] is True and por_os["3"]["status"] == "Em andamento"
     assert por_os["4"]["responsavel_status"] == "Gestão" and por_os["4"]["recomendado"] != "William de Souza Lobo"
-    assert any(i["origem"] == "Plano" and i["status"] == "Prevista" for i in d["itens"])
+    assert any(i["origem"] == "Plano" and i["status"] == "Aguardando geração" for i in d["itens"])
     assert d["periodo"]["hoje"] == "2026-10-14"
     assert d["totais"]["total"] == d["total"] == len(d["itens"])
 

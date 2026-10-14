@@ -26,7 +26,9 @@ def _carregar_dotenv(caminho: Path) -> None:
             os.environ[chave] = valor
 
 
-_carregar_dotenv(_BASE_DIR / ".env")
+# Testes são herméticos: nunca herdam credenciais/variáveis do .env local do desenvolvedor.
+if os.environ.get("APP_ENV") != "test":
+    _carregar_dotenv(_BASE_DIR / ".env")
 
 
 def _bool(nome: str, padrao: bool) -> bool:
@@ -104,7 +106,12 @@ class Settings:
 
     @property
     def sessao_ociosa_minutos(self) -> int:
-        return _int("SESSION_IDLE_MINUTES", 30)
+        return _int("SESSION_IDLE_MINUTES", 25)
+
+    @property
+    def atividade_janela_minutos(self) -> int:
+        """Maior intervalo entre duas atividades que ainda conta como tempo ATIVO (o resto é ocioso)."""
+        return _int("ACTIVITY_WINDOW_MINUTES", 5)
 
     @property
     def sessao_max_horas(self) -> int:
@@ -174,6 +181,41 @@ class Settings:
         """Mesmo com a escrita habilitada, `true` (padrão) só valida e registra o que
         SERIA enviado — nenhuma requisição de escrita sai da aplicação."""
         return _bool("NEOVERO_WRITE_DRY_RUN", True)
+
+    # ── Sugestões e Suporte (e-mail via SMTP) ─────────────────────────────────
+    # A senha de app do Gmail vive SOMENTE no ambiente/secret manager do servidor. Sem SMTP_USER e
+    # SMTP_PASSWORD o recurso responde "não configurado" — nenhum envio é simulado.
+    @property
+    def smtp_host(self) -> str:
+        return os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+
+    @property
+    def smtp_port(self) -> int:
+        return _int("SMTP_PORT", 587)
+
+    @property
+    def smtp_user(self) -> str | None:
+        return os.environ.get("SMTP_USER") or None
+
+    @property
+    def smtp_password(self) -> str | None:
+        return os.environ.get("SMTP_PASSWORD") or None
+
+    @property
+    def smtp_remetente(self) -> str | None:
+        return os.environ.get("SMTP_FROM") or self.smtp_user
+
+    @property
+    def suporte_destino(self) -> str:
+        return os.environ.get("SUPORTE_DESTINO", "dev.tech@myflux.ai").strip()
+
+    @property
+    def suporte_limite_por_hora(self) -> int:
+        return _int("SUPORTE_LIMITE_POR_HORA", 5)
+
+    @property
+    def suporte_configurado(self) -> bool:
+        return bool(self.smtp_user and self.smtp_password and self.smtp_remetente)
 
 
 settings = Settings()

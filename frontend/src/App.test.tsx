@@ -18,13 +18,15 @@ function usuario(extra: Partial<AuthUser>): AuthUser {
 const sessao = (u: AuthUser): AuthState => ({ user: u, csrf_token: 'csrf-1' });
 
 const mocks = vi.hoisted(() => ({
-  me: vi.fn(), login: vi.fn(), logout: vi.fn(), ping: vi.fn(), activity: vi.fn(), changePassword: vi.fn(),
+  me: vi.fn(), login: vi.fn(), logout: vi.fn(), ping: vi.fn(), sessao: vi.fn(), activity: vi.fn(), changePassword: vi.fn(),
+  suporteStatus: vi.fn(), suporteEnviar: vi.fn(),
   fetchPreventivas: vi.fn(), fetchPlanos: vi.fn(), fetchColaboradores: vi.fn(), fetchRevisao: vi.fn(),
   fetchRegras: vi.fn(), fetchAtribuicoes: vi.fn(), prefixos: [] as string[],
 }));
 
 vi.mock('./shared/api/client', () => ({
-  authApi: { me: mocks.me, login: mocks.login, logout: mocks.logout, ping: mocks.ping, activity: mocks.activity, changePassword: mocks.changePassword },
+  authApi: { me: mocks.me, login: mocks.login, logout: mocks.logout, ping: mocks.ping, sessao: mocks.sessao, activity: mocks.activity, changePassword: mocks.changePassword },
+  suporteApi: { status: mocks.suporteStatus, enviar: mocks.suporteEnviar },
   buildUnitClient: (prefix: string) => {
     mocks.prefixos.push(prefix);
     return {
@@ -44,7 +46,9 @@ beforeEach(() => {
   setCsrfToken('');
   setUnauthorizedHandler(null);
   window.location.hash = '';
-  mocks.ping.mockResolvedValue({ ok: true });
+  mocks.ping.mockResolvedValue({ ok: true, expira_em_s: 1500 });
+  mocks.sessao.mockResolvedValue({ expira_em_s: 1500, ociosidade_max_s: 1500, aviso_antes_s: 120 });
+  mocks.suporteStatus.mockResolvedValue({ configurado: true, tipos: {}, limites: { mensagem_max: 5000, mensagem_min: 10, nome_max: 120 } });
   mocks.activity.mockResolvedValue({ ok: true });
   mocks.fetchPreventivas.mockResolvedValue({
     total: 0, com_recomendacao: 0, em_atraso: 0, pagina: 1, por_pagina: 100, itens: [], totais: totaisVazios,
@@ -139,22 +143,42 @@ describe('controle de acesso na interface (a segurança real é do backend)', ()
     expect(within(lateral).getByRole('button', { name: 'Hetrin' })).toBeEnabled();
     expect(within(lateral).getByRole('button', { name: 'HMB' })).toBeEnabled();
     expect(within(lateral).getByText('Administração')).toBeInTheDocument();
-    expect(within(lateral).getByRole('button', { name: /Histórico de uso/ })).toBeInTheDocument();
+    expect(within(lateral).getByRole('button', { name: /Utilização/ })).toBeInTheDocument();
   });
 });
 
 describe('sessão', () => {
-  it('quando a sessão expira (401) volta ao login com aviso claro', async () => {
+  async function derrubarSessao(corpo: object) {
+    const { get } = await import('./shared/api/http');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(corpo), { status: 401 })));
+    await get('/api/qualquer').catch(() => {});
+  }
+
+  it('quando a sessão cai por inatividade volta ao login explicando o motivo', async () => {
     mocks.me.mockResolvedValue(sessao(usuario({})));
     render(<App />);
     await screen.findByLabelText('Navegação principal');
-    // simula uma chamada que volta 401: o tratador global registrado pelo AuthProvider é acionado
-    const { get } = await import('./shared/api/http');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"erro":"Autenticação necessária."}', { status: 401 })));
-    await get('/api/qualquer').catch(() => {});
+    await derrubarSessao({ erro: 'Você foi desconectado por inatividade. Entre novamente para continuar.', codigo: 'nao_autenticado', motivo: 'inatividade', mutacao: false });
     expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument();
-    expect(screen.getByText(/Sua sessão expirou/)).toBeInTheDocument();
+    expect(screen.getByText(/desconectado por inatividade/)).toBeInTheDocument();
+    expect(screen.queryByText(/não foi salva/)).toBeNull();
     vi.unstubAllGlobals();
+  });
+
+  it('se a queda pegou uma alteração em andamento, avisa que ela NÃO foi salva', async () => {
+    mocks.me.mockResolvedValue(sessao(usuario({})));
+    render(<App />);
+    await screen.findByLabelText('Navegação principal');
+    await derrubarSessao({ erro: 'Você foi desconectado por inatividade. Entre novamente para continuar.', codigo: 'nao_autenticado', motivo: 'inatividade', mutacao: true });
+    expect(await screen.findByText(/não foi salva/)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it('recarregar a página depois da queda não recupera a sessão: continua no login', async () => {
+    mocks.me.mockRejectedValue(new ApiError(401, 'Você foi desconectado por inatividade.'));
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument();
+    expect(mocks.fetchPreventivas).not.toHaveBeenCalled();
   });
 
   it('sair chama o logout no servidor e volta ao login', async () => {
@@ -173,5 +197,92 @@ describe('sessão', () => {
     expect(within(dialogo).queryByRole('button', { name: 'Cancelar' })).toBeNull();
     await userEvent.keyboard('{Escape}');
     expect(screen.getByRole('dialog', { name: 'Defina uma nova senha' })).toBeInTheDocument();
+  });
+});
+
+describe('aviso de expiração (25 min de inatividade)', () => {
+  it('perto de expirar mostra a contagem e "Continuar conectado" renova só com interação real', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.me.mockResolvedValue(sessao(usuario({})));
+      mocks.sessao.mockResolvedValue({ expira_em_s: 90, ociosidade_max_s: 1500, aviso_antes_s: 120 });
+      render(<App />);
+      await screen.findByLabelText('Navegação principal');
+      await vi.advanceTimersByTimeAsync(31_000);          // 1º ciclo: consulta o prazo (não renova)
+      expect(mocks.sessao).toHaveBeenCalled();
+      expect(mocks.ping).not.toHaveBeenCalled();           // consultar não é atividade
+      const aviso = await screen.findByRole('alertdialog', { name: /prestes a expirar/ });
+      expect(aviso).toHaveTextContent(/desconectado em/);
+      mocks.ping.mockResolvedValue({ ok: true, expira_em_s: 1500 });
+      await userEvent.click(within(aviso).getByRole('button', { name: 'Continuar conectado' }));
+      expect(mocks.ping).toHaveBeenCalledWith(true);       // batimento com interação real
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('tela de login — logo institucional', () => {
+  it('mostra a logo (desktop no painel lateral e mobile no cartão) sem alterar o formulário', async () => {
+    mocks.me.mockRejectedValue(new ApiError(401, 'Autenticação necessária.'));
+    const { container } = render(<App />);
+    await screen.findByRole('heading', { name: 'Entrar' });
+    const logos = container.querySelectorAll('.login-logo img[src="/logo.png"]');
+    expect(logos.length).toBe(2);
+    expect(screen.getByLabelText('Usuário')).toBeInTheDocument();
+    expect(screen.getByLabelText('Senha')).toBeInTheDocument();
+  });
+});
+
+describe('Sugestões e Suporte', () => {
+  async function abrirSuporte() {
+    mocks.me.mockResolvedValue(sessao(usuario({ username: 'ana@hospital.com' })));
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: /Sugestões e Suporte/ }));
+    return screen.findByRole('form', { name: /Enviar mensagem ao suporte/ });
+  }
+
+  it('qualquer usuário autenticado vê a página com os quatro campos', async () => {
+    const form = await abrirSuporte();
+    expect(within(form).getByLabelText('Nome')).toBeInTheDocument();
+    expect(within(form).getByLabelText('E-mail de retorno')).toHaveValue('ana@hospital.com');
+    expect(within(form).getByRole('radio', { name: 'Sugestão' })).toBeChecked();
+    expect(within(form).getByRole('radio', { name: 'Problema' })).toBeInTheDocument();
+    expect(within(form).getByRole('radio', { name: 'Melhoria' })).toBeInTheDocument();
+    expect(within(form).getByLabelText('Mensagem')).toBeInTheDocument();
+  });
+
+  it('valida no cliente antes de enviar', async () => {
+    const form = await abrirSuporte();
+    await userEvent.clear(within(form).getByLabelText('E-mail de retorno'));
+    await userEvent.type(within(form).getByLabelText('E-mail de retorno'), 'sem-arroba');
+    await userEvent.type(within(form).getByLabelText('Mensagem'), 'curta');
+    await userEvent.click(within(form).getByRole('button', { name: /Enviar/ }));
+    expect(await within(form).findByText('Informe um e-mail de retorno válido.')).toBeInTheDocument();
+    expect(within(form).getByText(/pelo menos 10 caracteres/)).toBeInTheDocument();
+    expect(mocks.suporteEnviar).not.toHaveBeenCalled();
+  });
+
+  it('envia uma vez só (botão trava durante o envio) e confirma ao usuário', async () => {
+    let resolver: (v: unknown) => void = () => {};
+    mocks.suporteEnviar.mockReturnValue(new Promise((r) => { resolver = r; }));
+    const form = await abrirSuporte();
+    await userEvent.type(within(form).getByLabelText('Nome'), 'Ana Souza');
+    await userEvent.type(within(form).getByLabelText('Mensagem'), 'A tela de preventivas demora para carregar.');
+    await userEvent.click(within(form).getByRole('radio', { name: 'Problema' }));
+    const botao = within(form).getByRole('button', { name: /Enviar/ });
+    await userEvent.dblClick(botao);
+    expect(mocks.suporteEnviar).toHaveBeenCalledTimes(1);
+    expect(mocks.suporteEnviar).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'problema', email: 'ana@hospital.com' }));
+    resolver({ ok: true, id: 1, mensagem: 'Mensagem enviada ao suporte.' });
+    expect(await screen.findByText('Mensagem enviada ao suporte.')).toBeInTheDocument();
+  });
+
+  it('se o e-mail do servidor não está configurado, avisa e não finge que enviou', async () => {
+    mocks.suporteStatus.mockResolvedValue({ configurado: false, tipos: {}, limites: { mensagem_max: 5000, mensagem_min: 10, nome_max: 120 } });
+    const form = await abrirSuporte();
+    expect(await screen.findByText(/ainda não está configurado/)).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: /Enviar/ })).toBeDisabled();
   });
 });

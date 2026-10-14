@@ -36,7 +36,7 @@ def nomes_batem(nome_api: str, nome_planilha: str) -> bool:
     Confirmado com dado real (HETRIN, set/2026): o Neovero tem "WILLIAN MIRANDA DE
     MORAIS" e o cadastro interno "William Miranda de Moraes" — a mesma pessoa."""
     def normalizar(n):
-        return [p.replace(".", "").lower() for p in (n or "").strip().split() if len(p) > 1]
+        return [p.replace(".", "").lower() for p in sem_acento(n or "").strip().split() if len(p) > 1]
     partes_api = normalizar(nome_api)
     partes_planilha = normalizar(nome_planilha)
     if not partes_api or not partes_planilha:

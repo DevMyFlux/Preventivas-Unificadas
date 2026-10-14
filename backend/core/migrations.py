@@ -35,9 +35,31 @@ def _m002_overlay_de_colaboradores(conn) -> None:
     models.ColaboradorOverlay.__table__.create(conn, checkfirst=True)
 
 
+def _m003_atividade_das_sessoes(conn) -> None:
+    """Acrescenta a `auth_sessions` os contadores de atividade (tempo ativo e nº de atividades).
+    Aditiva: ALTER TABLE ... ADD COLUMN com DEFAULT 0; sessões antigas ficam com 0 (desconhecido)."""
+    existentes = {c["name"] for c in inspect(conn).get_columns("auth_sessions")}
+    for coluna in ("active_seconds", "activity_count"):
+        if coluna not in existentes:
+            conn.execute(text(f"ALTER TABLE auth_sessions ADD COLUMN {coluna} INTEGER NOT NULL DEFAULT 0"))
+
+
+def _m004_suporte(conn) -> None:
+    """Cria `suporte_solicitacoes` (Sugestões e Suporte). Aditiva."""
+    models.SuporteSolicitacao.__table__.create(conn, checkfirst=True)
+
+
+def _m005_historico_de_responsavel(conn) -> None:
+    """Cria `os_responsavel_historico` (transferências observadas). Aditiva."""
+    models.OsResponsavelHistorico.__table__.create(conn, checkfirst=True)
+
+
 MIGRACOES = [
     (1, "esquema_inicial", _m001_esquema_inicial),
     (2, "overlay_de_colaboradores", _m002_overlay_de_colaboradores),
+    (3, "atividade_das_sessoes", _m003_atividade_das_sessoes),
+    (4, "suporte", _m004_suporte),
+    (5, "historico_de_responsavel", _m005_historico_de_responsavel),
 ]
 
 

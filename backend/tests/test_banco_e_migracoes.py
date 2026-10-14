@@ -9,10 +9,10 @@ from core.settings import settings
 
 def test_migracao_cria_as_tabelas_e_e_idempotente(app):
     assert {"users", "auth_sessions", "audit_log", "regra_resolucoes", "atribuicao_propostas",
-            "colaborador_overlay", "schema_migrations"} <= migrations.tabelas_existentes()
+            "colaborador_overlay", "schema_migrations", "suporte_solicitacoes", "os_responsavel_historico"} <= migrations.tabelas_existentes()
     assert migrations.migrar() == []          # segunda execução: nada a aplicar
     with sessao() as s:
-        assert [m.version for m in s.scalars(select(models.SchemaMigration)).all()] == [1, 2]
+        assert [m.version for m in s.scalars(select(models.SchemaMigration)).all()] == [1, 2, 3, 4, 5]
 
 
 def test_migracao_nao_apaga_dados_existentes(app, criar_usuarios):

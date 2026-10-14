@@ -61,7 +61,7 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
     _header_row(ws, cols)
 
     cor_status = {"Concluída": "E8F5E9", "Em andamento": "E3F2FD", "Pendente": "FFFDE7", "Cancelada": "F5F5F5",
-                  "Prevista": "FFFFFF", "Sem OS gerada": "F3E5F5"}
+                  "Parada": "FFF3E0", "Aguardando geração": "FFFFFF", "Sem OS – verificar": "F3E5F5"}
     for i, r in enumerate(preventivas, 3):
         if r.get("atrasada"):
             fill = PatternFill("solid", fgColor="FFCDD2")
