@@ -17,6 +17,7 @@ from core.auth.rotas import serializar_usuario
 from core.db import agora_utc, sessao
 from core.exporters import gerar_csv_tabela, gerar_excel_tabela
 from core.models import ROLE_USER, AuthSession, User
+from core.settings import settings
 from core.unidades import UNIDADES, codigo_valido
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -110,6 +111,9 @@ def criar_usuario():
 @dev_required
 def editar_usuario(user_id: int):
     c = request.get_json(silent=True) or {}
+    if "role" in c or "is_dev" in c:
+        # perfil/permissão NÃO é editável por API: só existe o Dev (bootstrap) e usuários comuns
+        return jsonify({"erro": "O perfil não pode ser alterado por esta operação.", "codigo": "perfil_imutavel"}), 400
     with sessao() as s:
         user = s.get(User, user_id)
         if not user:
@@ -133,6 +137,44 @@ def editar_usuario(user_id: int):
         # para que a mudança de vínculo tenha efeito imediato e rastreável
         servico.encerrar_sessoes_do_usuario(user_id, "revoked")
     g.audit_details = mudancas
+    return jsonify(_serializar(user))
+
+
+@bp.route("/users/<int:user_id>", methods=["GET"])
+@dev_required
+def detalhe_usuario(user_id: int):
+    """Ficha da conta: dados cadastrais, indicadores de utilização do período, sessões e últimos eventos."""
+    with sessao() as s:
+        user = s.get(User, user_id)
+        if not user:
+            return jsonify({"erro": "Usuário não encontrado."}), 404
+        abertas = s.scalar(select(func.count()).select_from(AuthSession)
+                           .where(AuthSession.user_id == user_id, AuthSession.ended_at.is_(None))) or 0
+        s.expunge(user)
+    f = {**_filtros_periodo(), "user_id": user_id, "unit": None, "username": None}
+    uso = relatorios_uso.relatorio_por_usuario(f)
+    eventos = relatorios_uso.listar_auditoria({"user_id": user_id, **{k: f[k] for k in ("data_ini", "data_fim")}}, 1, 25)
+    return jsonify({
+        "usuario": _serializar(user, abertas),
+        "utilizacao": uso[0] if uso else None,
+        "sessoes": relatorios_uso.listar_sessoes(f, limite=30),
+        "eventos": eventos["itens"],
+        "total_eventos": eventos["total"],
+    })
+
+
+@bp.route("/users/<int:user_id>/unlock", methods=["POST"])
+@dev_required
+def desbloquear_usuario(user_id: int):
+    """Remove o bloqueio temporário por tentativas inválidas (não altera senha nem ativação)."""
+    with sessao() as s:
+        user = s.get(User, user_id)
+        if not user:
+            return jsonify({"erro": "Usuário não encontrado."}), 404
+        user.failed_logins, user.locked_until = 0, None
+        s.flush()
+        s.expunge(user)
+    g.audit_details = {"acao": "desbloqueio"}
     return jsonify(_serializar(user))
 
 
@@ -204,8 +246,17 @@ def sessoes():
 @dev_required
 def uso_por_usuario():
     f = _filtros_periodo()
-    return jsonify({"itens": relatorios_uso.relatorio_por_usuario(f),
-                    "nota": relatorios_uso.resumo(f)["nota"]})
+    itens = relatorios_uso.relatorio_por_usuario(f)
+    return jsonify({
+        "itens": itens,
+        "indicadores": relatorios_uso.indicadores_gerais(itens),
+        "ativos_agora": relatorios_uso.ativos_agora(f),
+        "criterios": relatorios_uso.criterios(),
+        "limite_inatividade_min": settings.sessao_ociosa_minutos,
+        "janela_atividade_min": settings.atividade_janela_minutos,
+        "cobertura_desde": (lambda c: (c.isoformat() + "Z") if c else None)(relatorios_uso.inicio_cobertura()),
+        "nota": relatorios_uso.resumo(f)["nota"],
+    })
 
 
 def _enviar(buf, nome: str, mimetype: str):
@@ -236,19 +287,19 @@ def exportar_auditoria():
 def exportar_uso():
     f = _filtros_periodo()
     itens = relatorios_uso.relatorio_por_usuario(f)
-    resumo = relatorios_uso.resumo(f)
-    cabecalho = ["Usuário", "Nome", "Perfil", "Unidade", "Conta ativa", "Sessões", "Tempo em sessão (min)",
-                 "Eventos", "Escritas", "Exportações", "Falhas", "Dias com registro", "Primeiro evento (UTC)",
-                 "Último evento (UTC)", "Último login (UTC)", "Situação no período"]
-    dados = [[i["username"], i["nome"], i["perfil"], i["unidade"], "Sim" if i["conta_ativa"] else "Não",
-              i["sessoes"], i["tempo_em_sessao_min"], i["eventos"], i["escritas"], i["exportacoes"], i["falhas"],
-              i["dias_com_registro"], i["primeiro_evento"] or "", i["ultimo_evento"] or "",
-              i["ultimo_login"] or "", i["situacao"]] for i in itens]
+    cabecalho = ["Usuário", "Nome", "Unidade", "Conta ativa", "Último acesso (UTC)", "Acessos no período",
+                 "Tempo de sessão (min)", "Tempo ativo (min)", "Tempo ocioso (min)", "Sessões encerradas por inatividade",
+                 "Estado agora", "Eventos", "Alterações", "Exportações", "Falhas", "Dias com registro",
+                 "Último evento (UTC)", "Situação", "Parecer"]
+    dados = [[i["username"], i["nome"], i["unidade"], "Sim" if i["conta_ativa"] else "Não", i["ultimo_acesso"] or "",
+              i["acessos"], i["tempo_sessao_min"], i["tempo_ativo_min"], i["tempo_ocioso_min"],
+              i["sessoes_por_inatividade"], i["estado_agora"], i["eventos"], i["escritas"], i["exportacoes"],
+              i["falhas"], i["dias_com_registro"], i["ultimo_evento"] or "", i["situacao"], i["parecer"]] for i in itens]
     g.audit_details = {"linhas": len(dados), "formato": request.args.get("format", "xlsx")}
     sufixo = agora_utc().strftime("%Y%m%d_%H%M%S")
     if request.args.get("format") == "csv":
         return _enviar(gerar_csv_tabela(cabecalho, dados), f"uso_{sufixo}.csv", "text/csv")
-    larguras = [18, 24, 8, 10, 10, 9, 14, 9, 9, 11, 8, 12, 20, 20, 20, 28]
-    buf = gerar_excel_tabela("Relatório de utilização por usuário", list(zip(cabecalho, larguras)), dados,
-                             "Uso", subtitulo=resumo["nota"])
+    larguras = [24, 22, 10, 10, 20, 10, 12, 12, 12, 14, 11, 9, 10, 11, 8, 11, 20, 24, 50]
+    buf = gerar_excel_tabela("Relatório de utilização por usuário", list(zip(cabecalho, larguras)), dados, "Uso",
+                             subtitulo=" | ".join(relatorios_uso.criterios()))
     return _enviar(buf, f"uso_{sufixo}.xlsx", _XLSX)

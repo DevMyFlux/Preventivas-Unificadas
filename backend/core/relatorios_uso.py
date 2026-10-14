@@ -119,9 +119,64 @@ def inicio_cobertura() -> datetime | None:
         return s.scalar(select(func.min(AuditLog.ts)))
 
 
+def _fim_efetivo(sess: AuthSession, agora: datetime) -> datetime:
+    """Fim usado no tempo de sessão: o encerramento real; se ainda aberta, agora (ou a última atividade,
+    se a sessão já passou do limite de inatividade e ainda não foi fechada pela varredura)."""
+    if sess.ended_at:
+        return sess.ended_at
+    limite = timedelta(minutes=settings.sessao_ociosa_minutos)
+    return agora if agora - sess.last_activity_at <= limite else sess.last_activity_at
+
+
 def _duracao_sessao(sess: AuthSession, agora: datetime) -> timedelta:
-    fim = sess.ended_at or min(sess.last_activity_at, agora)
-    return max(fim - sess.created_at, timedelta(0))
+    return max(_fim_efetivo(sess, agora) - sess.created_at, timedelta(0))
+
+
+def estado_da_sessao(sess: AuthSession, agora: datetime) -> str:
+    """'ativo' (atividade nos últimos minutos da janela), 'ocioso' (aberta, sem atividade recente, ainda
+    dentro do limite) ou 'encerrada'. É a única forma confiável de dizer "usando agora"."""
+    if sess.ended_at is not None:
+        return "encerrada"
+    ocioso_desde = agora - sess.last_activity_at
+    if ocioso_desde > timedelta(minutes=settings.sessao_ociosa_minutos):
+        return "encerrada"
+    return "ativo" if ocioso_desde <= timedelta(minutes=settings.atividade_janela_minutos) else "ocioso"
+
+
+ROTULO_ENCERRAMENTO = {
+    "logout": "Saiu (logout)",
+    "idle_timeout": "Expirou por inatividade",
+    "max_lifetime": "Expirou (tempo máximo da sessão)",
+    "user_deactivated": "Conta desativada",
+    "revoked": "Encerrada pelo administrador",
+    "password_changed": "Senha alterada",
+}
+
+
+def _minutos(seg: float) -> float:
+    return round(seg / 60, 1)
+
+
+def _serializar_sessao(sess: AuthSession, user: User, agora: datetime) -> dict:
+    total_s = _duracao_sessao(sess, agora).total_seconds()
+    ativo_s = min(sess.active_seconds or 0, total_s) if total_s else 0
+    estado = estado_da_sessao(sess, agora)
+    return {
+        "id": sess.id, "user_id": user.id, "username": user.username, "nome": user.display_name, "unit": user.unit,
+        "inicio": sess.created_at.isoformat() + "Z",
+        "ultima_atividade": sess.last_activity_at.isoformat() + "Z",
+        "fim": (sess.ended_at.isoformat() + "Z") if sess.ended_at else None,
+        "estado": estado,
+        "encerramento": sess.end_reason or ("em_andamento" if estado != "encerrada" else "expirada_nao_registrada"),
+        "motivo_texto": (ROTULO_ENCERRAMENTO.get(sess.end_reason, sess.end_reason) if sess.end_reason
+                         else ("Em andamento" if estado != "encerrada" else "Expirada (aguardando registro)")),
+        "duracao_min": _minutos(total_s),
+        "tempo_ativo_min": _minutos(ativo_s),
+        "tempo_ocioso_min": _minutos(max(total_s - ativo_s, 0)),
+        "atividades": sess.activity_count or 0,
+        "por_inatividade": sess.end_reason == "idle_timeout",
+        "ip": sess.ip,
+    }
 
 
 def listar_sessoes(filtros: dict, limite: int = 200) -> list[dict]:
@@ -140,18 +195,24 @@ def listar_sessoes(filtros: dict, limite: int = 200) -> list[dict]:
         if filtros.get("unit"):
             stmt = stmt.where(User.unit == filtros["unit"])
         linhas = s.execute(stmt.order_by(AuthSession.created_at.desc()).limit(limite)).all()
-        saida = []
-        for sess, user in linhas:
-            saida.append({
-                "id": sess.id, "user_id": user.id, "username": user.username, "unit": user.unit,
-                "inicio": sess.created_at.isoformat() + "Z",
-                "ultima_atividade": sess.last_activity_at.isoformat() + "Z",
-                "fim": (sess.ended_at.isoformat() + "Z") if sess.ended_at else None,
-                "encerramento": sess.end_reason or "em_andamento",
-                "duracao_min": round(_duracao_sessao(sess, agora).total_seconds() / 60, 1),
-                "ip": sess.ip,
-            })
-        return saida
+        return [_serializar_sessao(sess, user, agora) for sess, user in linhas]
+
+
+def ativos_agora(filtros: dict | None = None) -> list[dict]:
+    """Sessões abertas neste momento, classificadas em ativo/ocioso (somente o que o backend consegue
+    afirmar com confiança: última atividade válida dentro da janela)."""
+    from core.auth import servico
+    servico.finalizar_sessoes_vencidas()
+    filtros = filtros or {}
+    agora = agora_utc()
+    with sessao() as s:
+        stmt = select(AuthSession, User).join(User, User.id == AuthSession.user_id).where(AuthSession.ended_at.is_(None))
+        if filtros.get("unit"):
+            stmt = stmt.where(User.unit == filtros["unit"])
+        if filtros.get("user_id"):
+            stmt = stmt.where(AuthSession.user_id == filtros["user_id"])
+        itens = [_serializar_sessao(sess, user, agora) for sess, user in s.execute(stmt).all()]
+    return sorted((i for i in itens if i["estado"] != "encerrada"), key=lambda x: x["ultima_atividade"], reverse=True)
 
 
 def resumo(filtros: dict) -> dict:
@@ -198,7 +259,7 @@ def resumo(filtros: dict) -> dict:
             falhas[(e.event, e.module, e.status_code)] += 1
 
     sessoes = listar_sessoes(filtros, limite=5000)
-    enc = Counter(s["encerramento"] for s in sessoes)
+    enc = Counter(x["encerramento"] for x in sessoes)
     cobertura = inicio_cobertura()
 
     return {
@@ -214,9 +275,15 @@ def resumo(filtros: dict) -> dict:
             "acessos_negados": contadores["negados"],
             "falhas": contadores["falhas"],
             "sessoes": len(sessoes),
-            "sessoes_em_andamento": enc.get("em_andamento", 0),
+            "sessoes_em_andamento": sum(1 for x in sessoes if x["estado"] != "encerrada"),
             "sessoes_por_encerramento": dict(enc),
-            "tempo_medio_sessao_min": round(sum(s["duracao_min"] for s in sessoes) / len(sessoes), 1) if sessoes else 0,
+            "sessoes_por_inatividade": sum(1 for x in sessoes if x["por_inatividade"]),
+            "tempo_medio_sessao_min": round(sum(x["duracao_min"] for x in sessoes) / len(sessoes), 1) if sessoes else 0,
+            "tempo_total_sessao_min": round(sum(x["duracao_min"] for x in sessoes), 1),
+            "tempo_total_ativo_min": round(sum(x["tempo_ativo_min"] for x in sessoes), 1),
+            "tempo_total_ocioso_min": round(sum(x["tempo_ocioso_min"] for x in sessoes), 1),
+            "usuarios_ativos_agora": len({x["user_id"] for x in ativos_agora(filtros) if x["estado"] == "ativo"}),
+            "usuarios_online_agora": len({x["user_id"] for x in ativos_agora(filtros)}),
         },
         "por_dia": [
             {"data": dia.isoformat(), "eventos": v["eventos"], "logins": v["logins"], "usuarios_ativos": len(v["usuarios"])}
@@ -237,12 +304,23 @@ def resumo(filtros: dict) -> dict:
 
 
 def relatorio_por_usuario(filtros: dict) -> list[dict]:
-    """Uma linha por usuário cadastrado (inclusive quem não tem nenhum registro no período —
-    marcado como 'Sem registros no período', não como 'inativo')."""
+    """Uma linha por usuário cadastrado, com os indicadores de utilização do período.
+
+    CRITÉRIOS EXPLÍCITOS (nunca se afirma "não utiliza"):
+      * "Utilizou no período": há ao menos uma sessão iniciada ou um evento (exceto falhas de login).
+      * "Sem registros no período": nenhuma sessão/evento. O campo `parecer` diz se o período está
+        inteiramente dentro da coleta (ausência de registro) ou só em parte (a coleta começou depois
+        do início do período — nesse caso NADA pode ser concluído sobre o trecho anterior).
+      * Tempo de sessão != tempo ativo: o ativo soma os intervalos entre atividades válidas (cada um
+        limitado a ACTIVITY_WINDOW_MINUTES); o ocioso é a diferença."""
     from core.auth import servico
     servico.finalizar_sessoes_vencidas()
     linhas = todas_linhas_auditoria({**filtros, "user_id": None, "username": None})
     sessoes = listar_sessoes({**filtros, "user_id": None}, limite=20000)
+    cobertura = inicio_cobertura()
+    ini_local = filtros.get("data_ini")
+    cobertura_dia = dia_local(cobertura) if cobertura else None
+
     eventos_por_user: dict[int, list[AuditLog]] = defaultdict(list)
     for e in linhas:
         if e.user_id:
@@ -253,6 +331,8 @@ def relatorio_por_usuario(filtros: dict) -> list[dict]:
 
     with sessao() as s:
         usuarios = s.scalars(select(User).order_by(User.username)).all()
+        ultima_sessao = dict(s.execute(
+            select(AuthSession.user_id, func.max(AuthSession.created_at)).group_by(AuthSession.user_id)).all())
 
     saida = []
     for u in usuarios:
@@ -264,19 +344,70 @@ def relatorio_por_usuario(filtros: dict) -> list[dict]:
         sess = sessoes_por_user.get(u.id, [])
         uteis = [e for e in evs if e.event not in ("login_failed", "login_blocked")]
         dias = {dia_local(e.ts) for e in uteis}
+        utilizou = bool(sess or uteis)
+        abertas = [x for x in sess if x["estado"] != "encerrada"]
+        estado_agora = ("ativo" if any(x["estado"] == "ativo" for x in abertas)
+                        else "ocioso" if abertas else "offline")
+        if utilizou:
+            parecer = "Utilizou no período"
+        elif cobertura_dia is None or (ini_local and ini_local < cobertura_dia):
+            inicio = cobertura_dia.strftime("%d/%m/%Y") if cobertura_dia else "—"
+            parecer = f"Sem registros — a coleta de utilização começou em {inicio}; o período anterior não é coberto"
+        else:
+            parecer = "Sem registros no período (período coberto pela coleta)"
+        ultimo_ev = max((e.ts for e in uteis), default=None)
+        ult_sess = ultima_sessao.get(u.id)
         saida.append({
-            "username": u.username, "nome": u.display_name, "perfil": u.role, "unidade": u.unit or "Todas",
+            "id": u.id, "username": u.username, "nome": u.display_name, "perfil": u.role, "unidade": u.unit or "Todas",
             "conta_ativa": u.is_active,
+            "ultimo_acesso": (ult_sess.isoformat() + "Z") if ult_sess else None,
+            "acessos": len(sess),
             "sessoes": len(sess),
-            "tempo_em_sessao_min": round(sum(x["duracao_min"] for x in sess), 1),
+            "tempo_sessao_min": round(sum(x["duracao_min"] for x in sess), 1),
+            "tempo_ativo_min": round(sum(x["tempo_ativo_min"] for x in sess), 1),
+            "tempo_ocioso_min": round(sum(x["tempo_ocioso_min"] for x in sess), 1),
+            "sessoes_por_inatividade": sum(1 for x in sess if x["por_inatividade"]),
+            "estado_agora": estado_agora,
             "eventos": len(uteis),
             "escritas": sum(1 for e in uteis if e.action in ("create", "update", "delete")),
             "exportacoes": sum(1 for e in uteis if e.action == "export"),
             "falhas": sum(1 for e in evs if e.result != "success"),
             "dias_com_registro": len(dias),
             "primeiro_evento": (min(e.ts for e in uteis).isoformat() + "Z") if uteis else None,
-            "ultimo_evento": (max(e.ts for e in uteis).isoformat() + "Z") if uteis else None,
+            "ultimo_evento": (ultimo_ev.isoformat() + "Z") if ultimo_ev else None,
             "ultimo_login": (u.last_login_at.isoformat() + "Z") if u.last_login_at else None,
-            "situacao": "Com atividade registrada" if uteis else "Sem registros no período",
+            "utilizou": utilizou,
+            "situacao": "Com utilização registrada" if utilizou else "Sem utilização registrada",
+            "parecer": parecer,
         })
     return saida
+
+
+def indicadores_gerais(itens: list[dict]) -> dict:
+    """Totais coerentes com a tabela por usuário (mesma fonte) — sem recalcular de outra forma."""
+    return {
+        "usuarios_cadastrados": len(itens),
+        "usuarios_que_utilizaram": sum(1 for i in itens if i["utilizou"]),
+        "usuarios_sem_utilizacao_registrada": sum(1 for i in itens if i["conta_ativa"] and not i["utilizou"]),
+        "usuarios_ativos_agora": sum(1 for i in itens if i["estado_agora"] == "ativo"),
+        "usuarios_ociosos_agora": sum(1 for i in itens if i["estado_agora"] == "ocioso"),
+        "acessos": sum(i["acessos"] for i in itens),
+        "tempo_sessao_min": round(sum(i["tempo_sessao_min"] for i in itens), 1),
+        "tempo_ativo_min": round(sum(i["tempo_ativo_min"] for i in itens), 1),
+        "tempo_ocioso_min": round(sum(i["tempo_ocioso_min"] for i in itens), 1),
+        "sessoes_por_inatividade": sum(i["sessoes_por_inatividade"] for i in itens),
+    }
+
+
+_CRITERIOS = [
+    "Tempo de sessão = do login ao encerramento (ou até agora, se aberta). NÃO significa que a pessoa estava usando.",
+    "Tempo ativo = soma dos intervalos entre atividades válidas (cliques, navegação e consultas feitas pelo usuário), cada intervalo limitado a {janela} min.",
+    "Tempo ocioso = tempo de sessão − tempo ativo. Chamadas automáticas em segundo plano NÃO contam como atividade.",
+    "A sessão é encerrada no servidor após {limite} min sem atividade válida; o fim registrado é a última atividade.",
+    "'Ativo agora' = sessão aberta com atividade nos últimos {janela} min; 'ocioso' = aberta, sem atividade recente, ainda dentro do limite.",
+    "'Sem utilização registrada' indica ausência de registros no período — não comprova que a pessoa não usou o sistema.",
+]
+
+
+def criterios() -> list[str]:
+    return [c.format(janela=settings.atividade_janela_minutos, limite=settings.sessao_ociosa_minutos) for c in _CRITERIOS]

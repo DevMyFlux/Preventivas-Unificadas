@@ -427,6 +427,13 @@ button.kpi:hover { background: var(--surface-2); }
   min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); background: var(--bg); color: var(--text);
   font-size: 14px;
 }
+/* logo institucional: círculo branco proporcional (hero no desktop; topo do cartão quando o hero some, no mobile) */
+.login-logo { background: #fff; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
+.login-logo img { display: block; width: auto; }
+.login-logo-lg { width: 52px; height: 52px; }
+.login-logo-lg img { height: 34px; }
+.login-logo-card { display: none; width: 64px; height: 64px; border: 1px solid var(--border-strong); }
+.login-logo-card img { height: 42px; }
 .login-wrap .page-sub { color: var(--text-2); font-size: 13px; margin-top: 2px; }
 .login-wrap .muted { color: var(--text-3); }
 .login-wrap .stack { gap: 14px; }
@@ -458,4 +465,27 @@ button.kpi:hover { background: var(--surface-2); }
 .login-pane { display: grid; place-items: center; padding: 32px 20px; }
 .login-card { width: 100%; max-width: 380px; display: grid; gap: 16px; }
 .login-card h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
-@media (max-width: 860px) { .login-wrap { grid-template-columns: 1fr; } .login-hero { display: none; } }
+@media (max-width: 860px) { .login-wrap { grid-template-columns: 1fr; } .login-hero { display: none; } .login-logo-card { display: grid; } }
+
+/* ── Aviso de expiração da sessão ── */
+.session-warning {
+  position: fixed; right: 16px; bottom: 16px; z-index: 80; max-width: min(420px, calc(100vw - 32px));
+  display: flex; gap: 14px; align-items: center; padding: 12px 14px; border-radius: var(--r-md);
+  background: var(--warning-soft); border: 1px solid var(--warning); color: var(--warning-text); box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.18));
+  font-size: 13px;
+}
+.session-count { font-weight: 800; font-variant-numeric: tabular-nums; }
+.field-error { color: var(--danger-text); font-size: 12.5px; font-weight: 600; }
+.nav-secundario .nav-item { font-size: 13px; opacity: .9; }
+.chips-ativos { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--primary); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+.chip-btn { background: none; border: 0; padding: 0; cursor: pointer; }
+
+.chip-removivel {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  background: var(--primary-soft, #e8edfb); color: var(--primary, #3454d1); border: 1px solid var(--primary, #3454d1);
+}
+.chip-removivel button {
+  width: 20px; height: 20px; border-radius: 50%; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; line-height: 1;
+}
+.chip-removivel button:hover { background: rgba(0, 0, 0, 0.1); }

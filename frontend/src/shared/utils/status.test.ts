@@ -3,9 +3,9 @@ import { calcBarWidths } from './barChart';
 import { STATUS_EXECUCAO, toneDaProposta, toneDoResponsavel, toneDoStatus } from './status';
 
 describe('status de execução', () => {
-  it('cobre os seis status do backend, cada um com dica explicativa', () => {
+  it('cobre os sete status do backend, cada um com dica explicativa', () => {
     expect(STATUS_EXECUCAO.map((s) => s.status)).toEqual([
-      'Pendente', 'Em andamento', 'Concluída', 'Prevista', 'Sem OS gerada', 'Cancelada']);
+      'Pendente', 'Em andamento', 'Parada', 'Concluída', 'Aguardando geração', 'Sem OS – verificar', 'Cancelada']);
     expect(STATUS_EXECUCAO.every((s) => s.hint.length > 5)).toBe(true);
   });
 
@@ -13,7 +13,7 @@ describe('status de execução', () => {
     expect(toneDoStatus('Concluída')).toBe('success');
     expect(toneDoStatus('Pendente')).toBe('warning');
     expect(toneDoStatus('Em andamento')).toBe('info');
-    expect(toneDoStatus('Sem OS gerada')).toBe('purple');   // não é atraso: cor diferente da vermelha
+    expect(toneDoStatus('Sem OS – verificar')).toBe('purple');   // não é atraso: cor diferente da vermelha
     expect(toneDoStatus('qualquer coisa')).toBe('neutral');
   });
 

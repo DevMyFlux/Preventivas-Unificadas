@@ -5,9 +5,10 @@ export type Tone = 'success' | 'info' | 'warning' | 'danger' | 'purple' | 'neutr
 export const STATUS_EXECUCAO: { status: StatusExecucao; tone: Tone; hint: string }[] = [
   { status: 'Pendente', tone: 'warning', hint: 'OS aberta, ainda não iniciada' },
   { status: 'Em andamento', tone: 'info', hint: 'OS em execução' },
+  { status: 'Parada', tone: 'danger', hint: 'OS em andamento com o equipamento parado (ex.: aguardando garantia); a situação no Neovero não foi alterada' },
   { status: 'Concluída', tone: 'success', hint: 'OS fechada' },
-  { status: 'Prevista', tone: 'neutral', hint: 'Projeção do plano; OS ainda não gerada' },
-  { status: 'Sem OS gerada', tone: 'purple', hint: 'Data passada sem OS no Neovero (não é atraso)' },
+  { status: 'Aguardando geração', tone: 'neutral', hint: 'Data futura: a OS ainda será gerada pelo Neovero' },
+  { status: 'Sem OS – verificar', tone: 'purple', hint: 'Data já passada e nenhuma OS encontrada: conferir no Neovero (não é atraso)' },
   { status: 'Cancelada', tone: 'neutral', hint: 'OS cancelada' },
 ];
 
@@ -58,4 +59,5 @@ export const NOME_MODULO: Record<string, string> = {
   admin: 'Administração',
   auth: 'Autenticação',
   sistema: 'Sistema',
+  suporte: 'Suporte',
 };

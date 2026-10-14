@@ -40,3 +40,13 @@ def test_nomes_batem_nao_e_permissivo_demais_com_1_palavra_so():
     """Um nome de uma palavra só não deve bater com qualquer sobrenome parecido —
     a defesa contra falso-positivo (maioria das palavras batendo) ainda precisa valer."""
     assert _nomes_batem("Maria", "Maria Pureza Pereira Ramos") is False
+
+
+def test_nomes_batem_ignora_acentos_nos_dois_lados():
+    assert _nomes_batem("LUIS ALBERTO DA SILVA", "Luís Alberto da Silva") is True
+    assert _nomes_batem("Luís Alberto da Silva", "LUIS ALBERTO DA SILVA") is True
+    assert _nomes_batem("JOSÉ CARLOS", "Jose Carlos") is True
+
+
+def test_nomes_batem_acento_nao_cria_falso_positivo():
+    assert _nomes_batem("Luís Alberto da Silva", "Maikon Douglas Batista") is False

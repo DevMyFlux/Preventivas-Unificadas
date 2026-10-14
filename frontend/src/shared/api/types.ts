@@ -26,14 +26,21 @@ export interface AuthState {
   csrf_token: string;
 }
 
+export interface EstadoSessao {
+  expira_em_s: number;
+  ociosidade_max_s: number;
+  aviso_antes_s: number;
+}
+
 // ── Preventivas ────────────────────────────────────────────────────────────
 
 export type StatusExecucao =
   | 'Concluída'
   | 'Em andamento'
+  | 'Parada'
   | 'Pendente'
-  | 'Prevista'
-  | 'Sem OS gerada'
+  | 'Aguardando geração'
+  | 'Sem OS – verificar'
   | 'Cancelada';
 
 export type StatusResponsavel =
@@ -75,6 +82,14 @@ export interface Preventiva {
   motivo_sem_candidato: string | null;
   regra: { id: string; status: 'aplicada' | 'pendente'; mensagem: string } | null;
   alertas: string[];
+  /** cargo exigido pelo plano (regra de cargo da unidade), quando existe */
+  regra_cargo?: { id: string; descricao: string } | null;
+  /** executante atual da OS tem cargo fora do exigido pelo plano (só sinaliza; nada é reatribuído) */
+  cargo_fora_da_regra?: string | null;
+  parada_desde?: string | null;
+  /** como o Neovero descreve a situação da OS em andamento (ex.: "OS em Pendência - Interna") */
+  situacao_neovero?: string | null;
+  observacao_os?: string | null;
 }
 
 export interface TotaisPreventivas {
@@ -234,6 +249,38 @@ export interface RevisaoResponse {
   por_status: Record<string, number>;
   por_responsavel: { status: string; responsavel: string; ordens: number }[];
   itens: ItemRevisao[];
+  /** OS atribuídas a executante válido, mas de cargo fora do exigido pelo plano (só HETRIN tem regra de cargo) */
+  cargo_fora_da_regra: { os_numero: string; data_prev: string; plano: string; status: string; responsavel_atual: string | null; desvio: string }[];
+  /** planos ativos cujo responsável padrão não é executante válido; null = planos indisponíveis agora */
+  planos_responsavel_invalido: PlanoResponsavelInvalido[] | null;
+  nota: string;
+}
+
+export interface PlanoResponsavelInvalido {
+  plano_id: number;
+  plano: string;
+  responsavel_id: number | null;
+  responsavel_nome: string | null;
+  status: string;
+  os_abertas: number;
+}
+
+export interface Transferencia {
+  id: number;
+  os_numero: string;
+  os_id: number | null;
+  plano: string | null;
+  de: string | null;
+  para: string | null;
+  tipo: 'inicial' | 'transferencia';
+  observado_em: string;
+  motivo: string | null;
+  motivo_por: string | null;
+}
+
+export interface TransferenciasResponse {
+  total: number;
+  itens: Transferencia[];
   nota: string;
 }
 
@@ -369,7 +416,13 @@ export interface UsageSummary {
     sessoes: number;
     sessoes_em_andamento: number;
     sessoes_por_encerramento: Record<string, number>;
+    sessoes_por_inatividade: number;
     tempo_medio_sessao_min: number;
+    tempo_total_sessao_min: number;
+    tempo_total_ativo_min: number;
+    tempo_total_ocioso_min: number;
+    usuarios_ativos_agora: number;
+    usuarios_online_agora: number;
   };
   por_dia: { data: string; eventos: number; logins: number; usuarios_ativos: number }[];
   por_modulo: { modulo: string; eventos: number }[];
@@ -380,14 +433,24 @@ export interface UsageSummary {
   limite_inatividade_min: number;
 }
 
+export type EstadoAgora = 'ativo' | 'ocioso' | 'offline';
+
 export interface UsageRow {
+  id: number;
   username: string;
   nome: string;
   perfil: string;
   unidade: string;
   conta_ativa: boolean;
+  /** início da última sessão (ISO UTC) */
+  ultimo_acesso: string | null;
+  acessos: number;
   sessoes: number;
-  tempo_em_sessao_min: number;
+  tempo_sessao_min: number;
+  tempo_ativo_min: number;
+  tempo_ocioso_min: number;
+  sessoes_por_inatividade: number;
+  estado_agora: EstadoAgora;
   eventos: number;
   escritas: number;
   exportacoes: number;
@@ -396,7 +459,44 @@ export interface UsageRow {
   primeiro_evento: string | null;
   ultimo_evento: string | null;
   ultimo_login: string | null;
+  utilizou: boolean;
   situacao: string;
+  /** explica se a ausência de registro está dentro do período coberto pela coleta */
+  parecer: string;
+}
+
+export interface UsageIndicators {
+  usuarios_cadastrados: number;
+  usuarios_que_utilizaram: number;
+  usuarios_sem_utilizacao_registrada: number;
+  usuarios_ativos_agora: number;
+  usuarios_ociosos_agora: number;
+  acessos: number;
+  tempo_sessao_min: number;
+  tempo_ativo_min: number;
+  tempo_ocioso_min: number;
+  sessoes_por_inatividade: number;
+}
+
+export interface AtivoAgora {
+  id: number;
+  user_id: number;
+  username: string;
+  unit: string | null;
+  inicio: string;
+  ultima_atividade: string;
+  estado: 'ativo' | 'ocioso';
+}
+
+export interface UsageResponse {
+  itens: UsageRow[];
+  indicadores: UsageIndicators;
+  ativos_agora: AtivoAgora[];
+  criterios: string[];
+  limite_inatividade_min: number;
+  janela_atividade_min: number;
+  cobertura_desde: string | null;
+  nota: string;
 }
 
 export interface SessionRow {
@@ -407,7 +507,29 @@ export interface SessionRow {
   inicio: string;
   ultima_atividade: string;
   fim: string | null;
+  estado: 'ativo' | 'ocioso' | 'encerrada';
   encerramento: string;
+  motivo_texto: string;
+  por_inatividade: boolean;
   duracao_min: number;
+  tempo_ativo_min: number;
+  tempo_ocioso_min: number;
+  atividades: number;
   ip: string | null;
 }
+
+export interface UserDetail {
+  usuario: AdminUser;
+  utilizacao: UsageRow | null;
+  sessoes: SessionRow[];
+  eventos: AuditEvent[];
+  total_eventos: number;
+}
+
+export interface SuporteStatus {
+  configurado: boolean;
+  tipos: Record<string, string>;
+  limites: { mensagem_max: number; mensagem_min: number; nome_max: number };
+}
+
+export type TipoSuporte = 'sugestao' | 'problema' | 'melhoria';

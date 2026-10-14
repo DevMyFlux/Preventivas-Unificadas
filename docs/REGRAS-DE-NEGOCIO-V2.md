@@ -100,14 +100,48 @@ descartada se já existe OS real para o mesmo plano/equipamento/dia — nunca du
 | Status | Significado |
 |---|---|
 | Concluída / Em andamento / Pendente / Cancelada | situação real da OS (Fechada / Em andamento / Aberta / Cancelada) |
-| Prevista | projeção sem OS, de hoje em diante |
-| **Sem OS gerada** | projeção com data passada e sem OS — **não é atraso** (não há informação suficiente) |
+| **Parada** | OS em andamento (situação 2) com `dataHoraParada` e **sem** `dataHoraFuncionamento`. Só exibição: a situação real no Neovero não é alterada. Para OS em andamento a tela mostra também a descrição do Neovero (ex.: “OS em Pendência - Interna”) e a observação da OS |
+| **Aguardando geração** | projeção sem OS, de hoje em diante (futuro: a OS ainda será gerada) |
+| **Sem OS – verificar** | projeção com data passada e sem OS — pede conferência humana; **não é atraso** (não há informação suficiente). Antes: “Sem OS gerada” |
 
-`atrasada = OS real não concluída (Pendente ou Em andamento) com data anterior a hoje` (fuso do Brasil). Filtros (no
+`atrasada = OS real não concluída (Pendente, Em andamento ou Parada) com data anterior a hoje` (fuso do Brasil).
+**Sem duplicidade:** uma projeção que carrega a OS aberta vinculada ao item é a mesma manutenção dessa OS (ainda que as
+datas difiram) e não é contada de novo — correção validada com dados reais da HMB (113 OS apareciam duas vezes; atrasadas
+382 → 302). Filtros (no
 **servidor**, iguais para tela e exportação): dias não contíguos, intervalo, status (múltiplo), atraso, turno, par/ímpar,
 responsável, busca, revisão, sem candidato, origem. Totais, tabela, paginação e Excel saem do mesmo cálculo; a exportação
 **não aceita linhas do cliente**. “Incluir atrasadas de dias anteriores” (ligado por padrão) traz as OS ainda abertas
 mesmo fora do período.
+
+## 5.8 Cargo exigido por plano (HETRIN)
+
+Mecanismo genérico (`core/regras/cargos.py`) com tabela **por unidade** (`units/grand_massif/regras_cargo.py`); a HMB não
+tem tabela e **não herda nada**. Gate estrito no motor: só concorre quem é de uma família de cargo permitida, disponível
+e com vaga no dia; sem ninguém → *sem candidato* com o motivo (o sistema **nunca escolhe outro cargo por conta própria**).
+Cargo **alternativo** só existe quando declarado na tabela e só entra se nenhum principal puder — e o resultado traz o aviso.
+
+| Plano (padrão no nome) | Cargo principal | Alternativa explícita |
+|---|---|---|
+| Rondas diárias de chiller / ar comprimido | Técnico de Climatização | — |
+| Limpeza de fancoils BL1 | Técnico de Climatização | — |
+| Inspeção do sistema de combate a incêndio | Eletricista | — |
+| Teste de partida dos grupos geradores | Eletricista | — |
+| Painéis termossolares (limpeza/inspeção) | Eletricista | — |
+| Coleta de medidor noturna (N1) | Aux. Eletricista | — |
+| Réguas de gases medicinais; exaustores/difusores | Aux. Manutenção/Climatização | Aux. Eletricista |
+| Ronda de iluminação/tomadas; ronda de motobombas | Eletricista | Aux. Eletricista |
+
+OS **já atribuídas** a cargo fora da regra são apenas sinalizadas (campo `cargo_fora_da_regra`, aba “Cargo fora da regra” em
+Revisão) — nada é reatribuído. A regra nominal (`nomes_obrigatorios`) tem precedência sobre o cargo.
+
+## 5.9 Histórico de responsável e planos com responsável padrão inválido
+
+- O Neovero só informa o responsável **atual**. A aplicação registra (append-only, por unidade) a 1ª leitura de cada OS e
+  cada mudança de responsável entre leituras (`os_responsavel_historico`; `GET /transferencias`). Mudanças anteriores ao
+  monitoramento não são conhecidas; o **motivo** é anotado por uma pessoa (`PUT /transferencias/{id}/motivo`, auditado).
+- Revisão lista os **planos ativos cujo responsável padrão** (o Neovero cria cada OS com ele) é gestão, genérico, desligado,
+  bloqueado ou sem identificação, com o nº de OS abertas afetadas. “Não identificado” = nenhuma OS aberta permite descobrir o
+  nome do responsável daquele id.
 
 ## 5.7 Preenchimento automático do responsável no Neovero
 

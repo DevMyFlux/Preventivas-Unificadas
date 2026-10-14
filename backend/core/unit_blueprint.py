@@ -22,7 +22,7 @@ from flask import Blueprint, g, jsonify, request, send_file
 from core import cache as _cache
 from core.db import agora_utc
 from core import colaboradores_overlay, preventivas as prev
-from core import atribuicoes
+from core import atribuicoes, os_historico
 from core.exporters import gerar_excel_planos, gerar_excel_preventivas
 from core.motor_base import HABILIDADES, HABILIDADES_POR_ID
 from core.neovero_client import (
@@ -95,7 +95,7 @@ def tratar_erros(fn):
 
 
 def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invalidar_colaboradores, indicar_responsavel,
-                    regras=(), nomes_permitidos_fn=None) -> Blueprint:
+                    regras=(), nomes_permitidos_fn=None, regra_cargo_fn=None) -> Blueprint:
     bp = Blueprint(nome, __name__, url_prefix=f"/api/{cfg.PREFIXO_API}")
     prefixo_cache = f"{codigo_unidade.lower()}_"
     _travas: dict[str, threading.Lock] = defaultdict(threading.Lock)
@@ -226,7 +226,7 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
             base, (planos, itens) = f_base.result(), f_planos.result()
         ctx = prev.ContextoGeracao(
             colab_ativos=ativos(colab), colab_todos=colab, indicar=indicar_responsavel,
-            regras_resolvidas=resolvidas(colab), nomes_permitidos_fn=nomes_permitidos_fn,
+            regras_resolvidas=resolvidas(colab), nomes_permitidos_fn=nomes_permitidos_fn, regra_cargo_fn=regra_cargo_fn,
             # cópias: o cache da base não pode ser mutado pela geração (acumularia a cada chamada)
             hist_tipo=dict(base["hist_tipo"]), hist_ativo=dict(base["hist_ativo"]), carga=dict(base["carga"]),
             hoje=prev.hoje_local())
@@ -236,7 +236,17 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
                      "pendencias_regras": pendencias_das_regras(ctx.regras_resolvidas),
                      "base": base}
         _cache.set(chave, resultado)
+        _observar_responsaveis(ocorrencias)
         return resultado
+
+    def _observar_responsaveis(ocorrencias):
+        """Registra primeira leitura / transferência do responsável das OS reais. Falha aqui nunca derruba a geração."""
+        try:
+            os_historico.registrar_observacoes(codigo_unidade, [
+                {"os_numero": o["os_vinculada"], "os_id": o.get("os_id"), "plano": o["plano"], "responsavel": o["responsavel_atual"]}
+                for o in ocorrencias if o["origem"] == "OS"])
+        except Exception:   # pragma: no cover - degradação segura
+            log.exception("Falha ao registrar histórico de responsável (%s)", codigo_unidade)
 
     def pendencias_das_regras(res: dict) -> list[dict]:
         saida = []
@@ -303,14 +313,21 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
         h = get_headers()
         colab = roster()
         abertas = carregar_abertas(h)
-        ctx = prev.ContextoGeracao(colab_ativos=ativos(colab), colab_todos=colab, indicar=indicar_responsavel)
+        ctx = prev.ContextoGeracao(colab_ativos=ativos(colab), colab_todos=colab, indicar=indicar_responsavel,
+                                   regra_cargo_fn=regra_cargo_fn)
         itens = []
+        fora_da_regra = []
         for o in abertas:
             oc = prev._ocorrencia_de_os(o, ctx.hoje)
             if not oc:
                 continue
             st, cadastro = prev.classificar_responsavel(oc["responsavel_atual"], ctx, oc["_dia"])
             if st == prev.RESP_ATRIBUIDA:
+                desvio = prev._desvio_de_cargo(oc, cadastro, ctx)
+                if desvio:   # executante válido, mas cargo fora do exigido pelo plano (só sinaliza)
+                    fora_da_regra.append({
+                        "os_numero": oc["os_vinculada"], "data_prev": oc["_dia"].strftime("%d/%m/%Y"), "plano": oc["plano"],
+                        "status": oc["status"], "responsavel_atual": oc["responsavel_atual"], "desvio": desvio})
                 continue
             desligamento = None
             if cadastro:
@@ -318,11 +335,16 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
                 desligamento = linha.get("data_desligamento")
             itens.append({
                 "os_numero": oc["os_vinculada"], "data_prev": oc["_dia"].strftime("%d/%m/%Y"), "plano": oc["plano"],
-                "oficina": oc["oficina"], "situacao": oc["os_situacao"], "atrasada": oc["atrasada"],
+                "oficina": oc["oficina"], "situacao": oc["os_situacao"], "status": oc["status"], "atrasada": oc["atrasada"],
                 "responsavel_atual": oc["responsavel_atual"], "responsavel_status": st,
                 "responsavel_cadastro": cadastro, "data_desligamento": desligamento,
             })
         itens.sort(key=lambda x: (x["responsavel_status"], x["responsavel_atual"] or "", x["data_prev"]))
+        try:
+            planos_ativos, _ = carregar_planos_e_itens(h)
+            planos_invalidos = prev.planos_com_responsavel_invalido(planos_ativos, abertas, ctx)
+        except (NeoveroIndisponivelError, requests.RequestException):
+            planos_invalidos = None   # a revisão das OS continua útil mesmo sem os planos
         por_status = defaultdict(int)
         por_responsavel = defaultdict(int)
         for it in itens:
@@ -333,8 +355,33 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
             "por_responsavel": [{"status": s, "responsavel": r, "ordens": n}
                                 for (s, r), n in sorted(por_responsavel.items(), key=lambda x: -x[1])],
             "itens": itens,
+            "cargo_fora_da_regra": fora_da_regra,
+            "planos_responsavel_invalido": planos_invalidos,
             "nota": "Somente leitura: nenhuma OS é reatribuída automaticamente; o histórico é preservado.",
         })
+
+    # ── histórico de responsável / transferências ─────────────────────────────
+    @bp.route("/transferencias")
+    @tratar_erros
+    def api_transferencias():
+        """Transferências de responsável OBSERVADAS pela aplicação (ver core/os_historico.py)."""
+        so_transf = request.args.get("todas") not in ("1", "true")
+        itens = os_historico.listar(codigo_unidade, os_numero=request.args.get("os"), so_transferencias=so_transf)
+        return jsonify({
+            "total": len(itens), "itens": itens,
+            "nota": "Registra o que a aplicação observou entre leituras do Neovero; mudanças anteriores ao monitoramento "
+                    "não são conhecidas. O motivo é anotado por uma pessoa.",
+        })
+
+    @bp.route("/transferencias/<int:registro_id>/motivo", methods=["PUT"])
+    @tratar_erros
+    def api_motivo_transferencia(registro_id: int):
+        corpo = request.get_json(silent=True) or {}
+        r = os_historico.anotar_motivo(codigo_unidade, registro_id, str(corpo.get("motivo", "")), g.user.username)
+        if r is None:
+            return jsonify({"erro": "Registro não encontrado nesta unidade."}), 404
+        g.audit_details = {"registro": registro_id}
+        return jsonify(r)
 
     # ── planos ────────────────────────────────────────────────────────────────
     @bp.route("/planos")

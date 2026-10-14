@@ -17,7 +17,18 @@
 - Senhas: **scrypt** com salt (werkzeug). Mínimo 10 caracteres, com letras e números. Nunca em log/resposta.
 - Sessão: token aleatório (256 bits) em cookie **HttpOnly + SameSite=Lax (+ Secure em produção)**; no banco só o
   **SHA-256** do token. **CSRF:** header `X-CSRF-Token` obrigatório em todo método que altera estado.
-- Expiração: **30 min** de inatividade (`SESSION_IDLE_MINUTES`) e **12 h** absolutas (`SESSION_MAX_HOURS`).
+- Expiração: **25 min consecutivos sem atividade válida** (`SESSION_IDLE_MINUTES`, padrão 25) e **12 h** absolutas
+  (`SESSION_MAX_HOURS`). **Quem decide é o servidor** — o relógio do navegador só mostra o aviso:
+  - *Atividade válida* = requisição autenticada disparada pelo usuário (com limitação de 30 s para não gravar a cada
+    clique) ou `POST /api/auth/ping {interagiu:true}` (houve clique/tecla/rolagem). **Não** contam: `GET /api/auth/session`
+    (consulta do prazo) e `ping` sem interação — nenhuma chamada em segundo plano mantém a sessão viva.
+  - Vencida a sessão, **toda** rota protegida devolve 401 com `motivo` (`inatividade`, `tempo_maximo`, …) e `mutacao`
+    (true se a requisição alteraria dados → o frontend avisa que **a última operação não foi salva**). Recarregar a
+    página não recupera a sessão (o token fica inválido no banco). O mesmo cookie vale em todas as abas: atividade em uma
+    mantém a outra; a queda é detectada em qualquer aba (`BroadcastChannel` + 401).
+  - O encerramento é atômico e auditado: evento `session_idle_timeout` (usuário, unidade, momento da última atividade,
+    motivo). Qualquer pessoa vê a mensagem “Você foi desconectado por inatividade”.
+  - Frontend: consulta o prazo a cada 30 s; faltando ~2 min mostra a contagem e **Continuar conectado**.
 - Login: resposta idêntica para usuário inexistente / senha errada / conta desativada (com custo de verificação
   equalizado); **bloqueio** após 5 falhas (15 min) e limite de **20 falhas/15 min por IP**. O IP do cliente só é lido de
   `X-Forwarded-For` quando há proxy confiável configurado (`TRUST_PROXY_HOPS`, 1 em produção).
@@ -31,6 +42,20 @@
   (`npm audit` completo ainda lista 6 achados **só de ferramentas de build/teste** — vite/vitest/esbuild — que exigem
   upgrade *major*; não vão para a imagem de produção.)
 
+## Sugestões e Suporte (e-mail)
+
+- `POST /api/suporte` (qualquer usuário autenticado; CSRF obrigatório) envia a mensagem por **SMTP** para
+  `dev.tech@myflux.ai` (`SUPORTE_DESTINO`), com *Reply-To* = e-mail informado (validado, sem CR/LF).
+- **Credenciais só no ambiente** (`SMTP_USER`, `SMTP_PASSWORD` = senha de app do Gmail, `SMTP_HOST`/`SMTP_PORT`/`SMTP_FROM`
+  opcionais) ou secret manager. Nunca no frontend, no GitHub, em resposta de API, em log ou na auditoria.
+  **Sem `SMTP_USER`/`SMTP_PASSWORD` o endpoint responde 503 `suporte_nao_configurado` e a tela avisa que a mensagem NÃO foi
+  enviada — nada é simulado.** `GET /api/suporte/status` só informa `configurado: true|false`.
+- Proteções: validação (nome 2–120, e-mail, tipo ∈ sugestão/problema/melhoria, mensagem 10–5000), caracteres de controle
+  removidos, corpo máx. 32 KB, **5 envios/hora por usuário** (`SUPORTE_LIMITE_POR_HORA`), mensagem idêntica em 10 min =
+  409, botão trava durante o envio. A mensagem é gravada antes do envio (`suporte_solicitacoes`: `enviando` → `enviada` |
+  `falha`); falha de SMTP devolve 502 genérico (sem host/usuário/exceção) e não bloqueia nova tentativa. A auditoria guarda
+  tipo e tamanho — **não** o texto.
+
 ## Auditoria e relatórios de uso (somente Dev)
 
 - Tabela `audit_log` **append-only** (não há rota de alteração/exclusão): usuário, unidade, data/hora (UTC), evento,
@@ -39,9 +64,11 @@
 - Registra: login (sucesso/falha/bloqueio), logout, navegação entre módulos, **todas** as alterações, exportações,
   leituras dos módulos, acessos negados (com a unidade-alvo e a unidade do usuário) e erros. Leituras do próprio painel
   admin não poluem a trilha; alterações e exportações administrativas, sim.
-- **Atividade × inatividade:** cada login abre uma **sessão** (`auth_sessions`) com `last_activity_at` (qualquer chamada
-  autenticada + *heartbeat* a cada 60 s só se a aba está visível e houve interação nos últimos 5 min). Sem logout, a sessão é
-  fechada como `idle_timeout` **na última atividade conhecida** (cobre fechar aba/queda de rede) ou `max_lifetime`.
+- **Atividade × inatividade:** cada login abre uma **sessão** (`auth_sessions`) com `last_activity_at`, `active_seconds`
+  (soma dos intervalos entre atividades válidas, cada um limitado a `ACTIVITY_WINDOW_MINUTES`=5) e `activity_count`.
+  *Tempo de sessão* (login → fim) **não** é uso; *tempo ativo* é a estimativa de uso; *ocioso* = diferença. Sem logout, a sessão
+  é fechada como `idle_timeout` **na última atividade válida** (cobre fechar aba/queda de rede) ou `max_lifetime`.
+  “Ativo agora” = sessão aberta com atividade na janela de 5 min; “ocioso” = aberta sem atividade recente.
   Relatórios dizem **“Sem registros no período”**, nunca “não utilizou”; trazem a data de início da coleta
   (`cobertura_desde`) para não confundir *sem cobertura* com *inatividade*.
 - Painel (Administração → Histórico/Relatórios): filtros por usuário, unidade, módulo, resultado e período; indicadores

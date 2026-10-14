@@ -38,6 +38,7 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [exportando, setExportando] = useState(false);
+  const [maisFiltros, setMaisFiltros] = useState(false);
   const forcar = useRef(false);
 
   const buscaD = useDebounced(busca);
@@ -71,6 +72,22 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
   const tp = data?.totais_periodo;
   const tf = data?.totais;
   const filtrando = !!(status.length || atrasada || revisao || semCandidato || turno || paridade || dias.length || fIni || fFim || buscaD || respD);
+
+  // Filtros em vigor, sempre visíveis e removíveis um a um (nada fica "escondido" aplicado)
+  const ativos: { chave: string; texto: string; remover: () => void }[] = [
+    ...status.map((s) => ({ chave: `st-${s}`, texto: `Status: ${s}`, remover: () => alternarStatus(s) })),
+    ...(atrasada ? [{ chave: 'atrasada', texto: 'Em atraso', remover: () => setAtrasada(false) }] : []),
+    ...(revisao ? [{ chave: 'revisao', texto: 'Para revisar', remover: () => setRevisao(false) }] : []),
+    ...(semCandidato ? [{ chave: 'sem', texto: 'Sem candidato', remover: () => setSemCandidato(false) }] : []),
+    ...(turno ? [{ chave: 'turno', texto: `Turno: ${turno === '—' ? 'não informado' : turno}`, remover: () => setTurno('') }] : []),
+    ...(paridade ? [{ chave: 'par', texto: `Dia ${paridade}`, remover: () => setParidade('') }] : []),
+    ...(dias.length ? [{ chave: 'dias', texto: `${dias.length} dia(s) escolhido(s)`, remover: () => setDias([]) }] : []),
+    ...(fIni ? [{ chave: 'fini', texto: `A partir de ${fIni.split('-').reverse().join('/')}`, remover: () => setFIni('') }] : []),
+    ...(fFim ? [{ chave: 'ffim', texto: `Até ${fFim.split('-').reverse().join('/')}`, remover: () => setFFim('') }] : []),
+    ...(buscaD ? [{ chave: 'busca', texto: `Busca: “${buscaD}”`, remover: () => setBusca('') }] : []),
+    ...(respD ? [{ chave: 'resp', texto: `Responsável: “${respD}”`, remover: () => setResponsavel('') }] : []),
+  ];
+  const filtrosExtrasAtivos = !!(paridade || fIni || fFim);
 
   const limpar = () => {
     setStatus([]); setAtrasada(false); setRevisao(false); setSemCandidato(false); setTurno(''); setParidade('');
@@ -182,20 +199,40 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
           <select className="select" style={{ maxWidth: 150 }} aria-label="Filtrar por turno" value={turno} onChange={(e) => setTurno(e.target.value)}>
             {TURNOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
           </select>
-          <select className="select" style={{ maxWidth: 140 }} aria-label="Filtrar por tipo de dia" value={paridade} onChange={(e) => setParidade(e.target.value)}>
-            <option value="">Dia: todos</option><option value="Par">Par</option><option value="Ímpar">Ímpar</option>
-          </select>
-          <label className="row" style={{ gap: 6 }}>
-            <span className="muted">De</span>
-            <input type="date" className="input" style={{ width: 150 }} aria-label="Filtrar a partir de" min={dataIni} max={dataFim}
-              value={fIni} onChange={(e) => setFIni(e.target.value)} />
-          </label>
-          <label className="row" style={{ gap: 6 }}>
-            <span className="muted">Até</span>
-            <input type="date" className="input" style={{ width: 150 }} aria-label="Filtrar até" min={dataIni} max={dataFim}
-              value={fFim} onChange={(e) => setFFim(e.target.value)} />
-          </label>
+          <Button size="sm" variant="ghost" aria-expanded={maisFiltros || filtrosExtrasAtivos} onClick={() => setMaisFiltros((v) => !v)}
+            disabled={filtrosExtrasAtivos}>
+            {maisFiltros || filtrosExtrasAtivos ? 'Menos filtros' : 'Mais filtros'}
+          </Button>
         </div>
+
+        {(maisFiltros || filtrosExtrasAtivos) && (
+          <div className="row" aria-label="Mais filtros">
+            <select className="select" style={{ maxWidth: 140 }} aria-label="Filtrar por tipo de dia" value={paridade} onChange={(e) => setParidade(e.target.value)}>
+              <option value="">Dia: todos</option><option value="Par">Par</option><option value="Ímpar">Ímpar</option>
+            </select>
+            <label className="row" style={{ gap: 6 }}>
+              <span className="muted">De</span>
+              <input type="date" className="input" style={{ width: 150 }} aria-label="Filtrar a partir de" min={dataIni} max={dataFim}
+                value={fIni} onChange={(e) => setFIni(e.target.value)} />
+            </label>
+            <label className="row" style={{ gap: 6 }}>
+              <span className="muted">Até</span>
+              <input type="date" className="input" style={{ width: 150 }} aria-label="Filtrar até" min={dataIni} max={dataFim}
+                value={fFim} onChange={(e) => setFFim(e.target.value)} />
+            </label>
+          </div>
+        )}
+
+        {ativos.length > 0 && (
+          <div className="chips-ativos" role="list" aria-label="Filtros ativos">
+            {ativos.map((a) => (
+              <span key={a.chave} role="listitem" className="chip-removivel">
+                {a.texto}
+                <button type="button" aria-label={`Remover filtro ${a.texto}`} onClick={a.remover}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <label className="check">
@@ -269,6 +306,8 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
           <Chip tone={toneDoStatus(it.status)}>{it.status}</Chip>
           {it.atrasada && <Chip tone="danger" dot={false}>Atrasada</Chip>}
         </div>
+        {it.situacao_neovero && <div className="cell-sub" title="Situação como descrita no Neovero">{it.situacao_neovero}</div>}
+        {it.observacao_os && <div className="cell-sub cell-clip" title={it.observacao_os}>“{it.observacao_os}”</div>}
       </td>
       <td className="mono">{it.os_vinculada !== '—' ? it.os_vinculada : <span className="muted">—</span>}</td>
       <td>
@@ -278,6 +317,7 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
             <Chip tone={toneDoResponsavel(it.responsavel_status)} title={HINT_RESPONSAVEL[it.responsavel_status]}>
               {it.responsavel_status}
             </Chip>
+            {it.cargo_fora_da_regra && <div className="cell-sub" style={{ color: 'var(--warning-text)' }}>{it.cargo_fora_da_regra}</div>}
           </>
         ) : <span className="muted">{it.origem === 'Plano' ? 'Ainda sem OS' : 'Sem responsável'}</span>}
       </td>

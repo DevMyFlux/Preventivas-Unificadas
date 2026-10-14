@@ -344,3 +344,24 @@ def test_tipo_isento_nao_consome_nem_consulta_o_limite_diario(monkeypatch):
     monkeypatch.setattr(limites, "TIPO_IDS_ISENTOS_LIMITE", frozenset({8}))
     isento = _gerar(_ctx(colab), os_periodo=reais)
     assert sum(1 for o in isento if o["recomendado"]) == 20
+
+
+def test_projecao_com_a_os_aberta_vinculada_nao_duplica_a_os_real_de_outra_data():
+    """Achado com dados reais (HMB): item com data base antiga (07/09) cuja OS aberta (nº 9001) foi aberta em 06/10.
+    A OS real e a projeção são a MESMA manutenção — contar as duas inflava pendentes e atrasadas."""
+    plano = plano_neovero(1, "PM - MENSAL - SPLIT")
+    item = item_plano(100, "2026-09-07", equip_id=10, os_ligada={"id": 9001, "numero": "9001", "situacao": 1})
+    real = os_neovero(9001, "2026-10-06", plano_id=1, equip_id=10, situacao=1, responsavel="Eletricista A", responsavel_id=1)
+    ocs = _gerar(_ctx(), os_periodo=[real], planos=[plano], itens={1: [item]}, ini=date(2026, 9, 1), fim=date(2026, 10, 31))
+    com_a_os = [o for o in ocs if o["os_vinculada"] == "9001"]
+    assert len(com_a_os) == 1 and com_a_os[0]["origem"] == "OS"
+    assert sum(1 for o in ocs if o["atrasada"]) == 1          # só a OS real (06/10 < hoje 14/10)
+
+
+def test_projecao_com_os_vinculada_fora_da_lista_real_continua_aparecendo():
+    """Se a OS vinculada não está entre as OS reais carregadas, a projeção é a única representação dela."""
+    plano = plano_neovero(1, "PM - MENSAL - SPLIT")
+    item = item_plano(100, "2026-10-10", equip_id=10, os_ligada={"id": 9002, "numero": "9002", "situacao": 1})
+    ocs = _gerar(_ctx(), planos=[plano], itens={1: [item]}, ini=date(2026, 10, 1), fim=date(2026, 10, 31))
+    ligada = [o for o in ocs if o["os_vinculada"] == "9002"]
+    assert len(ligada) == 1 and ligada[0]["origem"] == "Plano" and ligada[0]["status"] == "Pendente"

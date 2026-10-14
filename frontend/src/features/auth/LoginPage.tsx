@@ -2,11 +2,10 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useAuth } from '../../app/AuthContext';
 import { mensagemDeErro } from '../../shared/api/http';
-import Icon from '../../shared/ui/Icon';
 import { Alert, Button } from '../../shared/ui/ui';
 
 export default function LoginPage() {
-  const { login, expired } = useAuth();
+  const { login, saida } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [erro, setErro] = useState<string | null>(null);
@@ -35,7 +34,7 @@ export default function LoginPage() {
       <aside className="login-hero" aria-hidden="true">
         <div className="grid-bg" />
         <div className="brand" style={{ position: 'relative' }}>
-          <div className="brand-mark"><Icon name="wrench" size={19} /></div>
+          <div className="login-logo login-logo-lg"><img src="/logo.png" alt="" /></div>
           <div>
             <div className="brand-name">MyFlux Preventivas</div>
             <div className="brand-sub" style={{ color: '#cbd5e1' }}>Manutenção hospitalar</div>
@@ -50,12 +49,18 @@ export default function LoginPage() {
 
       <main className="login-pane" id="conteudo">
         <form className="login-card" onSubmit={enviar} noValidate>
+          <div className="login-logo login-logo-card"><img src="/logo.png" alt="MyFlux" /></div>
           <div>
             <h1>Entrar</h1>
             <div className="page-sub">Use as credenciais fornecidas pelo administrador.</div>
           </div>
 
-          {expired && !erro && <Alert tone="warning">Sua sessão expirou. Entre novamente para continuar.</Alert>}
+          {saida && !erro && (
+            <Alert tone="warning">
+              {saida.mensagem}
+              {saida.mutacao && <> A última operação <strong>não foi salva</strong>; refaça-a após entrar.</>}
+            </Alert>
+          )}
           {erro && <Alert tone="danger">{erro}</Alert>}
 
           <div className="field">

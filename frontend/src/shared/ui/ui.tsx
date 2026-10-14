@@ -104,7 +104,7 @@ export function EmptyState({ icon = 'inbox', title, children, action }: { icon?:
 
 interface KpiProps {
   label: string;
-  value: number | null;
+  value: number | string | null;
   tone?: 'success' | 'info' | 'warning' | 'danger' | 'purple' | 'primary';
   hint?: string;
   onClick?: () => void;
@@ -120,7 +120,7 @@ export function KpiCard({ label, value, tone = 'primary', hint, onClick, pressed
       {...(onClick ? { onClick, type: 'button' as const, 'aria-pressed': !!pressed } : {})}
     >
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{loading || value === null ? <Skeleton width={48} height={22} /> : value.toLocaleString('pt-BR')}</div>
+      <div className="kpi-value">{loading || value === null ? <Skeleton width={48} height={22} /> : typeof value === 'number' ? value.toLocaleString('pt-BR') : value}</div>
       {hint && <div className="kpi-hint">{hint}</div>}
     </Tag>
   );

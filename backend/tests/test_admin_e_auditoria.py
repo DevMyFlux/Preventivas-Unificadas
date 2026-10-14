@@ -195,16 +195,16 @@ def test_resumo_traz_indicadores_e_nota_metodologica(app, dev, ana, criar_usuari
     assert any(m["modulo"] == "preventivas" for m in r["por_modulo"])
     assert r["por_dia"] and r["por_dia"][0]["eventos"] > 0
     assert "Ausência de registros não significa inatividade" in r["nota"]
-    assert r["limite_inatividade_min"] == 30
+    assert r["limite_inatividade_min"] == 25
 
 
 def test_relatorio_por_usuario_diferencia_sem_registros_de_inatividade(app, dev, ana):
     itens = {i["username"]: i for i in dev.get("/api/admin/usage").get_json()["itens"]}
-    assert itens["ana.hmb"]["situacao"] == "Com atividade registrada" or itens["ana.hmb"]["sessoes"] >= 1
-    # beto nunca entrou: 'Sem registros no período' — e NÃO 'inativo'/'não utilizou'
-    assert itens["beto.hetrin"]["situacao"] == "Sem registros no período"
+    assert itens["ana.hmb"]["utilizou"] is True and itens["ana.hmb"]["sessoes"] >= 1
+    # beto nunca entrou: 'Sem utilização registrada' — e NÃO 'inativo'/'não utiliza'
+    assert itens["beto.hetrin"]["situacao"] == "Sem utilização registrada"
     assert itens["beto.hetrin"]["eventos"] == 0 and itens["beto.hetrin"]["sessoes"] == 0
-    assert "inativ" not in itens["beto.hetrin"]["situacao"].lower()
+    assert "inativ" not in itens["beto.hetrin"]["situacao"].lower() and "não utiliza" not in itens["beto.hetrin"]["parecer"].lower()
 
 
 def test_sessoes_mostram_duracao_e_motivo_de_encerramento(app, dev, ana):

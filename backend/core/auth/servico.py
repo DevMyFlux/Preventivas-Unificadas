@@ -272,70 +272,155 @@ def autenticar(username: str, senha: str, *, ip: str | None = None, user_agent: 
     return user, token, csrf
 
 
-def _encerrar(s, sess: AuthSession, motivo: str, quando=None) -> None:
-    if sess.ended_at is None:
-        sess.ended_at = quando or agora_utc()
-        sess.end_reason = motivo
+# Motivos de encerramento -> evento de auditoria específico (logout já tem o seu próprio evento)
+_EVENTO_FIM = {
+    "idle_timeout": "session_idle_timeout",
+    "max_lifetime": "session_max_lifetime",
+    "user_deactivated": "session_revoked",
+    "revoked": "session_revoked",
+    "password_changed": "session_revoked",
+}
+
+# motivo de encerramento gravado -> motivo devolvido ao cliente numa resposta 401
+_MOTIVO_CLIENTE = {
+    "idle_timeout": "inatividade",
+    "max_lifetime": "tempo_maximo",
+    "user_deactivated": "conta_desativada",
+    "revoked": "encerrada_pelo_admin",
+    "password_changed": "senha_alterada",
+    "logout": "logout",
+}
 
 
-def validar_sessao(token: str | None):
+def motivo_para_cliente(end_reason: str | None) -> str:
+    return _MOTIVO_CLIENTE.get(end_reason or "", "sessao_invalida")
+
+
+def _encerrar(s, sess: AuthSession, motivo: str, quando=None) -> dict | None:
+    """Encerra a sessão de forma ATÔMICA (UPDATE ... WHERE ended_at IS NULL): só quem de fato a
+    encerrou recebe o dict do evento de auditoria — duas requisições simultâneas não duplicam o
+    registro. O evento deve ser gravado DEPOIS do commit (ver `_gravar_fins`)."""
+    fim = quando or agora_utc()
+    res = s.execute(update(AuthSession).where(AuthSession.id == sess.id, AuthSession.ended_at.is_(None))
+                    .values(ended_at=fim, end_reason=motivo))
+    if not res.rowcount:
+        return None
+    sess.ended_at, sess.end_reason = fim, motivo
+    return {
+        "sess_id": sess.id, "user_id": sess.user_id, "motivo": motivo, "ts": fim,
+        "duracao_s": max(int((fim - sess.created_at).total_seconds()), 0), "ativo_s": sess.active_seconds or 0,
+    }
+
+
+def _gravar_fins(fins: list[dict]) -> None:
+    for f in fins:
+        evento = _EVENTO_FIM.get(f["motivo"])
+        if not evento:
+            continue
+        with sessao() as s:
+            user = s.get(User, f["user_id"])
+            if user:
+                s.expunge(user)
+        audit.registrar(
+            evento, user=user, session_id=f["sess_id"], module="auth", action="logout",
+            result="success", ts=f["ts"],
+            details={"motivo": f["motivo"], "duracao_s": f["duracao_s"], "ativo_s": f["ativo_s"]})
+
+
+def _registrar_toque(sess: AuthSession, agora) -> bool:
+    """Atualiza a última atividade e acumula o tempo ATIVO. Grava no máx. 1x a cada 30 s por sessão
+    (throttle) — evita um UPDATE por requisição. Devolve True se registrou."""
+    folga = (agora - sess.last_activity_at).total_seconds()
+    if folga < _TOUCH_MIN_SEGUNDOS:
+        return False
+    janela = settings.atividade_janela_minutos * 60
+    sess.active_seconds = (sess.active_seconds or 0) + int(min(folga, janela))
+    sess.activity_count = (sess.activity_count or 0) + 1
+    sess.last_activity_at = agora
+    return True
+
+
+def validar_sessao(token: str | None, *, tocar: bool = True):
     """Retorna (user, sessao) se o token corresponde a uma sessão válida; senão (None, motivo).
-    Também faz a limpeza preguiçosa de sessões vencidas e atualiza `last_activity_at`
-    (no máx. 1 gravação a cada 30 s)."""
+
+    `tocar=False` valida SEM contar como atividade (usado pela consulta periódica do frontend, que
+    só pergunta "ainda estou logado?" — um polling não pode manter a sessão viva).
+
+    A inatividade é medida no BACKEND: passou de SESSION_IDLE_MINUTES (25) desde a última atividade
+    válida → a sessão é encerrada aqui, com registro de auditoria, e o token nunca mais vale."""
     if not token:
         return None, "sem_cookie"
     agora = agora_utc()
+    fins: list[dict] = []
+    resultado = (None, "token_desconhecido")
     with sessao() as s:
         sess = s.scalar(select(AuthSession).where(AuthSession.token_hash == hash_token(token)))
         if sess is None:
             return None, "token_desconhecido"
         if sess.ended_at is not None:
-            return None, "sessao_encerrada"
+            return None, motivo_para_cliente(sess.end_reason)
         user = s.get(User, sess.user_id)
         if sess.expires_at <= agora:
-            _encerrar(s, sess, "max_lifetime", sess.expires_at)
-            return None, "sessao_expirada"
-        if agora - sess.last_activity_at > timedelta(minutes=settings.sessao_ociosa_minutos):
-            # encerrada na última atividade real conhecida — ausência de eventos depois
-            # disso é inatividade, não "uso desconhecido"
-            _encerrar(s, sess, "idle_timeout", sess.last_activity_at)
-            return None, "sessao_ociosa"
-        if user is None or not user.is_active:
-            _encerrar(s, sess, "user_deactivated", agora)
-            return None, "usuario_desativado"
-        if (agora - sess.last_activity_at).total_seconds() >= _TOUCH_MIN_SEGUNDOS:
-            sess.last_activity_at = agora
-        s.flush()
-        s.expunge(user)
-        s.expunge(sess)
-        return user, sess
+            fim = _encerrar(s, sess, "max_lifetime", sess.expires_at)
+            resultado = (None, "tempo_maximo")
+        elif agora - sess.last_activity_at > timedelta(minutes=settings.sessao_ociosa_minutos):
+            # encerrada na ÚLTIMA ATIVIDADE real: o tempo depois disso é inatividade
+            fim = _encerrar(s, sess, "idle_timeout", sess.last_activity_at)
+            resultado = (None, "inatividade")
+        elif user is None or not user.is_active:
+            fim = _encerrar(s, sess, "user_deactivated", agora)
+            resultado = (None, "conta_desativada")
+        else:
+            if tocar:
+                _registrar_toque(sess, agora)
+            s.flush()
+            s.expunge(user)
+            s.expunge(sess)
+            return user, sess
+        if fim:
+            fins.append(fim)
+    _gravar_fins(fins)
+    return resultado
+
+
+def segundos_para_expirar(sess: AuthSession) -> int:
+    """Quanto falta, por inatividade, para a sessão cair (ou pelo limite absoluto, o que vier antes)."""
+    agora = agora_utc()
+    por_ociosidade = sess.last_activity_at + timedelta(minutes=settings.sessao_ociosa_minutos) - agora
+    absoluto = sess.expires_at - agora
+    return max(int(min(por_ociosidade, absoluto).total_seconds()), 0)
 
 
 def registrar_atividade(sessao_id: int) -> None:
-    """Marca atividade explícita (heartbeat do frontend), respeitando o limite de gravação."""
+    """Atividade explícita do usuário (clique/tecla/navegação confirmados pelo frontend)."""
     agora = agora_utc()
     with sessao() as s:
         sess = s.get(AuthSession, sessao_id)
-        if sess and sess.ended_at is None and (agora - sess.last_activity_at).total_seconds() >= 5:
-            sess.last_activity_at = agora
+        if sess and sess.ended_at is None:
+            _registrar_toque(sess, agora)
 
 
 def encerrar_sessao(sessao_id: int, motivo: str = "logout") -> None:
+    fins = []
     with sessao() as s:
         sess = s.get(AuthSession, sessao_id)
         if sess:
-            _encerrar(s, sess, motivo)
+            fim = _encerrar(s, sess, motivo)
+            if fim:
+                fins.append(fim)
+    _gravar_fins(fins)
 
 
 def encerrar_sessoes_do_usuario(user_id: int, motivo: str) -> int:
-    agora = agora_utc()
+    fins = []
     with sessao() as s:
-        res = s.execute(
-            update(AuthSession)
-            .where(AuthSession.user_id == user_id, AuthSession.ended_at.is_(None))
-            .values(ended_at=agora, end_reason=motivo)
-        )
-        return res.rowcount or 0
+        abertas = s.scalars(select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.ended_at.is_(None))).all()
+        for sess in abertas:
+            fim = _encerrar(s, sess, motivo)
+            if fim:
+                fins.append(fim)
+    _gravar_fins(fins)
+    return len(fins)
 
 
 def finalizar_sessoes_vencidas() -> int:
@@ -344,14 +429,16 @@ def finalizar_sessoes_vencidas() -> int:
     última atividade conhecida (ociosidade) ou o limite absoluto."""
     agora = agora_utc()
     limite_ocioso = agora - timedelta(minutes=settings.sessao_ociosa_minutos)
-    n = 0
+    fins = []
     with sessao() as s:
         abertas = s.scalars(select(AuthSession).where(AuthSession.ended_at.is_(None))).all()
         for sess in abertas:
+            fim = None
             if sess.expires_at <= agora:
-                _encerrar(s, sess, "max_lifetime", sess.expires_at)
-                n += 1
+                fim = _encerrar(s, sess, "max_lifetime", sess.expires_at)
             elif sess.last_activity_at < limite_ocioso:
-                _encerrar(s, sess, "idle_timeout", sess.last_activity_at)
-                n += 1
-    return n
+                fim = _encerrar(s, sess, "idle_timeout", sess.last_activity_at)
+            if fim:
+                fins.append(fim)
+    _gravar_fins(fins)
+    return len(fins)

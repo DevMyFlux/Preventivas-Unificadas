@@ -69,6 +69,10 @@ class AuthSession(Base):
     end_reason: Mapped[str | None] = mapped_column(String(24), nullable=True)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Tempo EFETIVAMENTE ativo (soma dos intervalos entre atividades, cada um limitado a
+    # ACTIVITY_WINDOW_MINUTES) e quantas atividades válidas foram registradas. Sessão aberta != uso.
+    active_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    activity_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
     user: Mapped[User] = relationship(back_populates="sessions")
 
@@ -164,6 +168,48 @@ class ColaboradorOverlay(Base):
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (UniqueConstraint("unit", "chave", name="uq_overlay_unit_chave"),)
+
+
+class SuporteSolicitacao(Base):
+    """Sugestão/problema/melhoria enviada por um usuário autenticado. O registro existe ANTES do envio
+    do e-mail (status `enviando`) para que um clique duplo não gere dois e-mails e para que a mensagem
+    não se perca se o envio falhar. `status`: enviando | enviada | falha | nao_configurado."""
+    __tablename__ = "suporte_solicitacoes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=agora_utc)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    nome: Mapped[str] = mapped_column(String(120), nullable=False)
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
+    tipo: Mapped[str] = mapped_column(String(16), nullable=False)
+    mensagem: Mapped[str] = mapped_column(Text, nullable=False)
+    msg_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="enviando")
+    erro: Mapped[str | None] = mapped_column(String(200), nullable=True)     # categoria do erro, nunca credenciais
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (Index("ix_suporte_user_ts", "user_id", "ts"),)
+
+
+class OsResponsavelHistorico(Base):
+    """Observações (append-only) do responsável de cada OS: primeira leitura e transferências. Ver core/os_historico.py."""
+    __tablename__ = "os_responsavel_historico"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    unit: Mapped[str] = mapped_column(String(16), nullable=False)
+    os_numero: Mapped[str] = mapped_column(String(32), nullable=False)
+    os_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    plano: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    responsavel: Mapped[str | None] = mapped_column(String(160), nullable=True)   # nome no Neovero (None = sem responsável)
+    anterior: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    tipo: Mapped[str] = mapped_column(String(16), nullable=False)                  # inicial | transferencia
+    observado_em: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=agora_utc)
+    motivo: Mapped[str | None] = mapped_column(String(300), nullable=True)          # anotado por uma pessoa
+    motivo_por: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (Index("ix_os_hist_unit_os", "unit", "os_numero", "id"),)
 
 
 class SchemaMigration(Base):

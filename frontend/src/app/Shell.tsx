@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { PAGINAS_ADMIN, useRota } from './route';
 import type { PaginaAdmin, PaginaUnidade, Rota } from './route';
-import AuditPage from '../features/admin/AuditPage';
-import ReportsPage from '../features/admin/ReportsPage';
 import UsersPage from '../features/admin/UsersPage';
+import UtilizacaoPage from '../features/admin/UtilizacaoPage';
 import ChangePasswordDialog from '../features/auth/ChangePasswordDialog';
 import AtribuicoesPanel from '../features/unit/AtribuicoesPanel';
 import ColaboradoresPanel from '../features/unit/ColaboradoresPanel';
@@ -12,33 +11,37 @@ import PlanosPanel from '../features/unit/PlanosPanel';
 import PreventivasPanel from '../features/unit/PreventivasPanel';
 import RegrasPanel from '../features/unit/RegrasPanel';
 import RevisaoPanel from '../features/unit/RevisaoPanel';
+import SuportePage from '../features/suporte/SuportePage';
 import { authApi, buildUnitClient } from '../shared/api/client';
 import type { UnitApiClient } from '../shared/api/client';
 import type { UnitInfo } from '../shared/api/types';
 import Icon from '../shared/ui/Icon';
 import type { IconName } from '../shared/ui/Icon';
 import { Button } from '../shared/ui/ui';
+import { AvisoSessao, useSessaoMonitor } from './useSessaoMonitor';
 import { addDays, firstOfMonth, lastOfMonth, todayISO, validateDateRange } from '../shared/utils/dateUtils';
 
-const NAV_UNIDADE: { key: PaginaUnidade; label: string; icon: IconName }[] = [
+// Menu por prioridade de uso: o dia a dia no topo; o que se mexe raramente fica num grupo à parte.
+const NAV_DIARIO: { key: PaginaUnidade; label: string; icon: IconName }[] = [
   { key: 'preventivas', label: 'Preventivas', icon: 'calendar' },
-  { key: 'revisao', label: 'Revisão', icon: 'alert' },
-  { key: 'atribuicoes', label: 'Atribuição', icon: 'link' },
   { key: 'colaboradores', label: 'Colaboradores', icon: 'users' },
+  { key: 'revisao', label: 'Revisão', icon: 'alert' },
+];
+const NAV_CONFIG: { key: PaginaUnidade; label: string; icon: IconName }[] = [
+  { key: 'atribuicoes', label: 'Atribuição', icon: 'link' },
   { key: 'planos', label: 'Planos', icon: 'list' },
   { key: 'regras', label: 'Regras', icon: 'sliders' },
 ];
 
 const NAV_ADMIN: { key: PaginaAdmin; label: string; icon: IconName }[] = [
   { key: 'usuarios', label: 'Usuários', icon: 'shield' },
-  { key: 'auditoria', label: 'Histórico de uso', icon: 'activity' },
-  { key: 'relatorios', label: 'Relatórios', icon: 'file' },
+  { key: 'utilizacao', label: 'Utilização', icon: 'activity' },
 ];
 
 const TITULOS: Record<string, string> = {
   preventivas: 'Preventivas', revisao: 'Revisão de responsáveis', atribuicoes: 'Atribuição de executantes', colaboradores: 'Colaboradores',
-  planos: 'Planos de manutenção', regras: 'Regras de atribuição', usuarios: 'Usuários e acessos', auditoria: 'Histórico de utilização',
-  relatorios: 'Relatórios de utilização',
+  planos: 'Planos de manutenção', regras: 'Regras de atribuição', usuarios: 'Usuários e acessos', utilizacao: 'Utilização do sistema',
+  suporte: 'Sugestões e Suporte',
 };
 
 const COR_UNIDADE: Record<string, string> = { HETRIN: 'var(--unit-hetrin)', HMB: 'var(--unit-hmb)' };
@@ -58,22 +61,6 @@ function useTema(): [string, () => void] {
   return [tema, () => setTema((t) => (t === 'dark' ? 'light' : 'dark'))];
 }
 
-/** Heartbeat: só informa "em uso" se a aba está visível e houve interação nos últimos 5 minutos. */
-function useHeartbeat() {
-  const ultimaInteracao = useRef(Date.now());
-  useEffect(() => {
-    const marcar = () => { ultimaInteracao.current = Date.now(); };
-    const eventos = ['mousedown', 'keydown', 'touchstart', 'scroll'] as const;
-    eventos.forEach((e) => window.addEventListener(e, marcar, { passive: true }));
-    const id = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && Date.now() - ultimaInteracao.current < 5 * 60_000) {
-        authApi.ping().catch(() => { /* 401 já é tratado globalmente */ });
-      }
-    }, 60_000);
-    return () => { eventos.forEach((e) => window.removeEventListener(e, marcar)); window.clearInterval(id); };
-  }, []);
-}
-
 export default function Shell() {
   const { user, logout } = useAuth();
   const u = user!;
@@ -84,7 +71,7 @@ export default function Shell() {
   const [menuAberto, setMenuAberto] = useState(false);
   const [senhaAberta, setSenhaAberta] = useState(false);
   const [contagens, setContagens] = useState<Record<string, number | undefined>>({});
-  useHeartbeat();
+  const sessao = useSessaoMonitor();
 
   // período global
   const hoje = todayISO();
@@ -126,6 +113,13 @@ export default function Shell() {
   const setCount = (chave: string) => (n: number) => setContagens((c) => (c[chave] === n ? c : { ...c, [chave]: n }));
   const paginaUnidade = rota.tipo === 'unidade' ? rota.pagina : 'preventivas';
   const iniciais = (u.display_name || u.username).split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+  const itemUnidade = (n: { key: PaginaUnidade; label: string; icon: IconName }) => (
+    <button key={n.key} type="button" className="nav-item" aria-current={rota.tipo === 'unidade' && rota.pagina === n.key ? 'page' : undefined}
+      onClick={() => irPara({ tipo: 'unidade', unidade: unidadeAtual?.codigo ?? padrao, pagina: n.key })}>
+      <Icon name={n.icon} size={17} />{n.label}
+      {contagens[`${unidadeAtual?.codigo}:${n.key}`] != null && <span className="count">{contagens[`${unidadeAtual?.codigo}:${n.key}`]}</span>}
+    </button>
+  );
   const mostraPeriodo = rota.tipo === 'unidade' && ['preventivas', 'colaboradores', 'atribuicoes'].includes(rota.pagina);
 
   return (
@@ -150,13 +144,11 @@ export default function Shell() {
         </div>
 
         <nav className="nav" aria-label="Módulos da unidade">
-          {NAV_UNIDADE.map((n) => (
-            <button key={n.key} type="button" className="nav-item" aria-current={rota.tipo === 'unidade' && rota.pagina === n.key ? 'page' : undefined}
-              onClick={() => irPara({ tipo: 'unidade', unidade: unidadeAtual?.codigo ?? padrao, pagina: n.key })}>
-              <Icon name={n.icon} size={17} />{n.label}
-              {contagens[`${unidadeAtual?.codigo}:${n.key}`] != null && <span className="count">{contagens[`${unidadeAtual?.codigo}:${n.key}`]}</span>}
-            </button>
-          ))}
+          {NAV_DIARIO.map(itemUnidade)}
+        </nav>
+        <div className="side-label">Configuração</div>
+        <nav className="nav nav-secundario" aria-label="Configuração da unidade">
+          {NAV_CONFIG.map(itemUnidade)}
         </nav>
 
         {u.is_dev && (
@@ -181,6 +173,8 @@ export default function Shell() {
               <div className="user-meta">{u.is_dev ? 'Administrador (Dev)' : u.unit_name}</div>
             </div>
           </div>
+          <button type="button" className="nav-item" aria-current={rota.tipo === 'geral' ? 'page' : undefined}
+            onClick={() => irPara({ tipo: 'geral', pagina: 'suporte' })}><Icon name="help" size={16} />Sugestões e Suporte</button>
           <div className="row" style={{ gap: 4, marginTop: 4 }}>
             <button type="button" className="nav-item" style={{ flex: 1 }} onClick={() => setSenhaAberta(true)}><Icon name="key" size={16} />Senha</button>
             <button type="button" className="nav-item" style={{ flex: 1 }} onClick={() => logout()}><Icon name="logout" size={16} />Sair</button>
@@ -212,14 +206,15 @@ export default function Shell() {
         <main className="page" id="conteudo" tabIndex={-1}>
           {proibida ? null : rota.tipo === 'admin' ? (
             !u.is_dev ? null :
-            rota.pagina === 'usuarios' ? <UsersPage /> : rota.pagina === 'auditoria' ? <AuditPage /> : <ReportsPage />
-          ) : client && unidadeAtual ? (
+            rota.pagina === 'usuarios' ? <UsersPage /> : <UtilizacaoPage />
+          ) : rota.tipo === 'geral' ? <SuportePage /> : client && unidadeAtual ? (
             <UnidadeConteudo key={unidadeAtual.codigo} codigo={unidadeAtual.codigo} client={client} pagina={rota.pagina}
               periodo={periodo} setCount={setCount} irPara={(p) => irPara({ tipo: 'unidade', unidade: unidadeAtual.codigo, pagina: p })} />
           ) : null}
         </main>
       </div>
 
+      <AvisoSessao prazoMs={sessao.prazoMs} avisoAntesS={sessao.avisoAntesS} onContinuar={sessao.continuar} onZerou={sessao.verificar} />
       {(senhaAberta || u.must_change_password) && <ChangePasswordDialog obrigatoria={u.must_change_password} onClose={() => setSenhaAberta(false)} />}
     </div>
   );

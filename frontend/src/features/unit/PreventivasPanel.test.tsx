@@ -19,7 +19,7 @@ function item(extra: Partial<Preventiva>): Preventiva {
 }
 
 const totais = (extra: Partial<TotaisPreventivas> = {}): TotaisPreventivas => ({
-  total: 6, por_status: { Pendente: 2, 'Em andamento': 1, Concluída: 2, Prevista: 1, 'Sem OS gerada': 0, Cancelada: 0 },
+  total: 6, por_status: { Pendente: 2, 'Em andamento': 1, Concluída: 2, 'Aguardando geração': 1, 'Sem OS – verificar': 0, Parada: 0, Cancelada: 0 },
   por_dia: { '2026-10-13': 2, '2026-10-14': 4 }, atrasadas: 2, revisao: 1, sem_candidato: 1, com_recomendacao: 1, ...extra,
 });
 
@@ -188,5 +188,45 @@ describe('filtros locais de planos e colaboradores', () => {
     expect(filtrarColaboradores(lista, '', '', 'sim', '').map((c) => c.funcionario)).toEqual(['C']);
     expect(filtrarColaboradores(lista, '', '', '', 'nao').map((c) => c.funcionario)).toEqual(['D']);
     expect(filtrarColaboradores(lista, 'supervisor', '', '', '').map((c) => c.funcionario)).toEqual(['D']);
+  });
+});
+
+describe('PreventivasPanel — filtros ativos e usabilidade', () => {
+  it('mostra os filtros em vigor como chips removíveis e "Limpar" os remove todos', async () => {
+    montar();
+    await screen.findByText('1001');
+    expect(screen.queryByRole('list', { name: 'Filtros ativos' })).toBeNull();
+    await userEvent.click(chips().getByRole('button', { name: /Pendente/ }));
+    await userEvent.selectOptions(screen.getByLabelText('Filtrar por turno'), 'Noturno');
+    const lista = await screen.findByRole('list', { name: 'Filtros ativos' });
+    expect(within(lista).getByText(/Status: Pendente/)).toBeInTheDocument();
+    expect(within(lista).getByText(/Turno: Noturno/)).toBeInTheDocument();
+    await userEvent.click(within(lista).getByRole('button', { name: /Remover filtro Turno: Noturno/ }));
+    await waitFor(() => expect(ultimaConsulta().turno).toBeUndefined());
+    expect(ultimaConsulta().status).toEqual(['Pendente']);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Limpar filtros' })[0]);
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Filtros ativos' })).toBeNull());
+  });
+
+  it('filtros secundários ficam recolhidos em "Mais filtros" e abrem sob demanda', async () => {
+    montar();
+    await screen.findByText('1001');
+    expect(screen.queryByLabelText('Filtrar por tipo de dia')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Mais filtros' }));
+    await userEvent.selectOptions(screen.getByLabelText('Filtrar por tipo de dia'), 'Par');
+    await waitFor(() => expect(ultimaConsulta().paridade).toBe('Par'));
+    expect(screen.getByText('Dia Par')).toBeInTheDocument();    // e o filtro aplicado aparece como chip
+  });
+
+  it('mostra o desvio de cargo (executante com cargo fora do exigido pelo plano) sem alterar a OS', async () => {
+    fetchPreventivas.mockResolvedValue(resposta([
+      item({ os_vinculada: '2001', plano: 'PM SEMANAL - TESTE DE PARTIDA DOS GRUPOS GERADORES',
+        cargo_fora_da_regra: 'Cargo fora da regra: o plano pede Eletricista' }),
+      item({ os_vinculada: '2002', status: 'Parada', atrasada: true, os_situacao: 'Em Andamento' }),
+    ]));
+    montar();
+    const linha = (await screen.findByText('2001')).closest('tr')!;
+    expect(within(linha).getByText(/o plano pede Eletricista/)).toBeInTheDocument();
+    expect(within(screen.getByText('2002').closest('tr')!).getByText('Parada')).toBeInTheDocument();
   });
 });

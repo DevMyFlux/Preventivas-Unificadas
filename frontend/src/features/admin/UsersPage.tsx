@@ -8,6 +8,7 @@ import Modal, { ConfirmDialog } from '../../shared/ui/Modal';
 import { useToast } from '../../shared/ui/Toast';
 import { Alert, Button, Chip, EmptyState, PageHead, TableSkeleton } from '../../shared/ui/ui';
 import { formatDateTimeBR } from '../../shared/utils/dateUtils';
+import UsuarioDetalhe from './UsuarioDetalhe';
 
 export default function UsersPage() {
   const toast = useToast();
@@ -16,6 +17,7 @@ export default function UsersPage() {
   const [editando, setEditando] = useState<AdminUser | null>(null);
   const [senhaDe, setSenhaDe] = useState<AdminUser | null>(null);
   const [alternando, setAlternando] = useState<AdminUser | null>(null);
+  const [detalheId, setDetalheId] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const alternarAtivo = async () => {
@@ -62,6 +64,7 @@ export default function UsersPage() {
                   <td className="hide-md num">{u.sessoes_abertas}</td>
                   <td>
                     <div className="row" style={{ gap: 4 }}>
+                      <Button size="sm" icon="eye" onClick={() => setDetalheId(u.id)} aria-label={`Detalhes de ${u.username}`}>Detalhes</Button>
                       {!u.is_dev && <Button size="sm" icon="edit" onClick={() => setEditando(u)}>Editar</Button>}
                       <Button size="sm" icon="key" onClick={() => setSenhaDe(u)}>Senha</Button>
                       {!u.is_dev && (
@@ -80,6 +83,7 @@ export default function UsersPage() {
 
       {criando && data && <FormUsuario unidades={data.unidades} onClose={() => setCriando(false)} onSaved={() => { setCriando(false); reload(); }} />}
       {editando && data && <FormUsuario unidades={data.unidades} usuario={editando} onClose={() => setEditando(null)} onSaved={() => { setEditando(null); reload(); }} />}
+      {detalheId !== null && <UsuarioDetalhe userId={detalheId} onClose={() => setDetalheId(null)} onChanged={reload} />}
       {senhaDe && <FormSenha usuario={senhaDe} onClose={() => setSenhaDe(null)} />}
       {alternando && (
         <ConfirmDialog

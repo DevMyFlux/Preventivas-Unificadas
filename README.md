@@ -20,9 +20,13 @@ auditoria, banco, runbook).
 | Acesso | Login obrigatório; perfil **Dev** (administrador) e usuários **vinculados a uma unidade**; isolamento imposto no backend |
 | Auditoria | Trilha append-only (quem, unidade, quando, módulo, ação, resultado), sessões com inatividade explícita, relatórios e exportação (Dev) |
 | Regras | Desligados não são elegíveis a partir da data; gestão nunca é executante; limites diários (Elétrica 14 / Climatização 10); rondas e oficina de ar comprimido/vácuo por turno × par/ímpar |
-| Preventivas | Mistura OS reais + projeções dos planos; status (Concluída / Em andamento / Pendente / Prevista / Sem OS gerada), **atraso real**, filtros por dias não contíguos, período, status, turno, par/ímpar; paginação e exportação consistentes com a tela |
+| Preventivas | Mistura OS reais + projeções dos planos; status (Concluída / Em andamento / Parada / Pendente / Aguardando geração / Sem OS – verificar), **atraso real**, filtros por dias não contíguos, período, status, turno, par/ímpar; paginação e exportação consistentes com a tela |
 | Neovero | Credenciais só por ambiente; paginação paralela; falhas tratadas (502/503) sem dados parciais; fila de atribuição com aprovação (escrita **desligada** por padrão) |
 | Código | Duas unidades × ~700 linhas de rotas duplicadas → um blueprint único (`core/unit_blueprint.py`); regras críticas em serviços (`core/regras/*`, `core/preventivas.py`) |
+| Sessão | Logout automático após **25 min** sem atividade válida, decidido no servidor (aviso 2 min antes, todas as abas, auditado) |
+| Suporte | “Sugestões e Suporte” envia e-mail via SMTP (credenciais só no ambiente; sem elas, responde “não configurado”) |
+| Utilização (Dev) | Tempo de sessão × ativo × ocioso, ativos agora, sem utilização registrada (com critérios), ficha do usuário, desbloqueio |
+| Cargos (HETRIN) | Cargo exigido por plano, alternativas explícitas, desvios sinalizados, histórico de transferências |
 | Frontend | Interface nova (tema claro/escuro, navegação lateral, KPIs clicáveis, seletor de dias, estados de carregamento/erro/vazio, acessibilidade) |
 
 ## Executar localmente
