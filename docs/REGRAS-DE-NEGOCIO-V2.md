@@ -210,4 +210,4 @@ Revisão) — nada é reatribuído. A regra nominal (`nomes_obrigatorios`) tem p
 
 - A escala (Excel) usada é a do **mês corrente** (comportamento original): consultar datas de outro mês usa a escala vigente.
 - Hora de execução das OS projetadas: 8h (diurno) ou 20h (plano noturno) — igual ao motor original.
-- Perfil `Dev` único; não há API para criar outro Dev.
+- **Administradores (perfil `dev`):** o primeiro vem de `DEV_ADMIN_*`; **só um administrador cria outro administrador** (`POST /api/admin/users` com `role: "dev"`, sempre sem unidade). Usuário comum recebe 403. O perfil **só se define na criação** (PATCH de `role` → 400). Proteções: o administrador não desativa a própria conta (`admin_proprio`), nunca fica sem administrador ativo, e a senha de um administrador só é alterada por ele mesmo; `DEV_ADMIN_RESET_PASSWORD` redefine apenas o administrador mais antigo. Tudo é auditado (`perfil: dev` nos detalhes, sem senha).

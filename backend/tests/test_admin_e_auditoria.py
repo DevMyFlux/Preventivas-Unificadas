@@ -72,18 +72,18 @@ def test_validacao_na_criacao_de_usuario(dev, corpo, campo):
     assert r.status_code == 400 and r.get_json()["campo"] == campo
 
 
-def test_nao_e_possivel_criar_outro_dev_nem_promover(dev):
-    r = dev.post("/api/admin/users", json={"username": "outro.dev", "password": "Senha12345", "role": "dev"})
+def test_perfil_invalido_na_criacao_e_nao_ha_promocao_de_usuario_existente(dev):
+    r = dev.post("/api/admin/users", json={"username": "outro.dev", "password": "Senha12345", "role": "root"})
     assert r.status_code == 400 and r.get_json()["codigo"] == "perfil_invalido"
     uid = servico.obter_usuario_por_username("ana.hmb").id
     dev.patch(f"/api/admin/users/{uid}", json={"role": "dev"})   # campo ignorado
     assert servico.obter_usuario_por_username("ana.hmb").role == "user"
 
 
-def test_conta_dev_nao_pode_ser_desativada(dev):
+def test_administrador_nao_pode_desativar_a_propria_conta(dev):
     uid = servico.obter_usuario_por_username("dev").id
     r = dev.post(f"/api/admin/users/{uid}/active", json={"active": False})
-    assert r.status_code == 400 and r.get_json()["codigo"] == "dev_protegido"
+    assert r.status_code == 400 and r.get_json()["codigo"] == "admin_proprio"
 
 
 def test_desativar_preserva_historico_e_reativar_devolve_o_acesso(app, dev, ana, criar_usuarios):

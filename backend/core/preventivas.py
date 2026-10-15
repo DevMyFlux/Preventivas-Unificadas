@@ -282,6 +282,7 @@ def _ocorrencias_projetadas(planos, itens_por_plano, d_ini, d_fim, hoje) -> list
                     "os_id": os_ativa.get("id"),
                     "os_situacao": SIT_MAP.get(sit, "—") if sit else "—",
                     "responsavel_atual": None,
+                    "_resp_plano_id": p.get("responsavelId"),   # responsável PADRÃO do plano (o Neovero cria a OS com ele)
                     "status": status,
                     "atrasada": atrasada,
                 })
@@ -491,11 +492,22 @@ def gerar_ocorrencias(
     # 2) projeções dos planos, sem as que já têm OS real
     projecoes = _casar_projecoes_com_os(reais, _ocorrencias_projetadas(planos, itens_por_plano, d_ini, d_fim, hoje))
 
+    # nome do responsável por id (vem das próprias OS carregadas): as previsões mostram o responsável padrão do plano
+    nomes_por_id: dict = {}
+    for o in [*os_periodo, *os_abertas]:
+        rid = o.get("responsavelId")
+        nome = ((o.get("responsavel") or {}).get("nome") or "").strip()
+        if rid and nome:
+            nomes_por_id.setdefault(rid, nome)
+    for pr in projecoes:
+        pr["responsavel_nome"] = nomes_por_id.get(pr.get("_resp_plano_id"))
+
     # 3) responsável atual das OS reais + registro na ocupação diária (sem dupla contagem)
     for oc in reais:
         status_resp, cadastro = classificar_responsavel_da_ocorrencia(oc, ctx)
         oc["responsavel_status"] = status_resp
         oc["responsavel_cadastro"] = cadastro
+        oc["responsavel_nome"] = oc["responsavel_atual"]
         oc["cargo_fora_da_regra"] = _desvio_de_cargo(oc, cadastro, ctx) if oc["status"] in STATUS_ABERTOS else None
         if cadastro and oc["status"] != ST_CANCELADA and not limites.tipo_isento(oc["_tipo_id"]):
             ctx.ocupacao.registrar(cadastro, oc["_dia"], limites.chave_os(oc["os_vinculada"]))
@@ -509,6 +521,7 @@ def gerar_ocorrencias(
         oc.setdefault("responsavel_status", "—")
         oc.setdefault("responsavel_cadastro", None)
         oc.setdefault("cargo_fora_da_regra", None)
+        oc.setdefault("responsavel_nome", None)
         # "Sem OS – verificar" (projeção de data passada) não é acionável: nada a recomendar
         precisa = oc["status"] in (*STATUS_ABERTOS, ST_PREVISTA)
         if oc["origem"] == "OS" and oc["responsavel_status"] in RESPONSAVEIS_VALIDOS:
@@ -527,8 +540,9 @@ def gerar_ocorrencias(
             (oc["origem"] == "OS" and oc["status"] in STATUS_ABERTOS
              and oc["responsavel_status"] not in RESPONSAVEIS_VALIDOS)
         )
-        # por que NÃO há recomendação (a tela mostra isto no lugar de um "—" sem explicação)
-        oc["sem_recomendacao_motivo"] = None if precisa else _motivo_sem_recomendacao(oc, plano_automatico)
+        # rótulo curto quando NÃO há o que recomendar (ajuda a entender a linha). Casos "automáticos" (equipe do Neovero) ficam
+        # sem rótulo: a tela mostra o NOME do responsável (`responsavel_nome`), não um texto que pareça status.
+        oc["sem_recomendacao_motivo"] = None if precisa else _motivo_sem_recomendacao(oc)
         oc["sem_candidato"] = bool(precisa and not oc["recomendado"])
         if oc["sem_candidato"]:
             oc["requer_intervencao"], oc["motivo_intervencao"] = True, oc["motivo_sem_candidato"]
@@ -536,20 +550,16 @@ def gerar_ocorrencias(
     return todas
 
 
-def _motivo_sem_recomendacao(oc: dict, plano_automatico: bool) -> str | None:
+def _motivo_sem_recomendacao(oc: dict) -> str | None:
     if oc["status"] == ST_CONCLUIDA:
         return "Concluída"
     if oc["status"] == ST_CANCELADA:
         return "Cancelada"
     if oc["status"] == ST_SEM_OS:
         return "Sem OS – verificar"
-    if oc["origem"] == "OS" and oc["responsavel_status"] == RESP_EQUIPE:
-        return "Equipe do Neovero (automático)"
     if oc["origem"] == "OS" and oc["responsavel_status"] == RESP_ATRIBUIDA:
         return "Já atribuída"
-    if plano_automatico:
-        return "Automático (Neovero)"
-    return None
+    return None      # equipe do Neovero / plano automático: a tela mostra o nome do responsável
 
 
 def _finalizar_campos(oc: dict) -> None:

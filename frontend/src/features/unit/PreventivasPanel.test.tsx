@@ -272,19 +272,20 @@ describe('PreventivasPanel — limite diário é aviso, não bloqueio', () => {
   });
 });
 
-describe('PreventivasPanel — coluna Recomendado sem "—" mudo', () => {
-  it('mostra o motivo de não haver recomendação (concluída, já atribuída, equipe do Neovero)', async () => {
+describe('PreventivasPanel — coluna Recomendado sem recomendação', () => {
+  it('mantém rótulos curtos (Concluída, Já atribuída…) e mostra o NOME do responsável nos casos automáticos', async () => {
     fetchPreventivas.mockResolvedValue(resposta([
-      item({ os_vinculada: '5001', status: 'Concluída', sem_recomendacao_motivo: 'Concluída' }),
-      item({ os_vinculada: '5002', sem_recomendacao_motivo: 'Já atribuída' }),
-      item({ os_vinculada: '5003', responsavel_status: 'Equipe do Neovero', sem_recomendacao_motivo: 'Equipe do Neovero (automático)' }),
-      item({ os_vinculada: '5004' }),                                           // sem motivo informado: continua "—"
+      item({ os_vinculada: '5001', status: 'Concluída', sem_recomendacao_motivo: 'Concluída', responsavel_nome: 'IRANILDO SILVA DOS SANTOS' }),
+      item({ os_vinculada: '5002', sem_recomendacao_motivo: 'Já atribuída', responsavel_nome: 'CLIMA UM' }),
+      item({ os_vinculada: '5003', responsavel_status: 'Equipe do Neovero', sem_recomendacao_motivo: null, responsavel_nome: 'ELÉTRICA - DIURNO' }),
+      item({ os_vinculada: '5004', origem: 'Plano', sem_recomendacao_motivo: null, responsavel_nome: null }),
     ]));
     montar();
-    for (const [os, texto] of [['5001', 'Concluída'], ['5002', 'Já atribuída'], ['5003', 'Equipe do Neovero (automático)']]) {
+    for (const [os, texto] of [['5001', 'Concluída'], ['5002', 'Já atribuída'], ['5003', 'ELÉTRICA - DIURNO']]) {
       const celulas = within((await screen.findByText(os)).closest('tr')!).getAllByRole('cell');
       expect(celulas[celulas.length - 1]).toHaveTextContent(texto);
     }
+    expect(screen.queryByText(/Automático \(Neovero\)|Equipe do Neovero \(automático\)/)).toBeNull();
     const ultima = within(screen.getByText('5004').closest('tr')!).getAllByRole('cell');
     expect(ultima[ultima.length - 1]).toHaveTextContent('—');
   });

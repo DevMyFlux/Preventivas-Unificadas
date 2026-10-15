@@ -8,10 +8,12 @@ import Modal, { ConfirmDialog } from '../../shared/ui/Modal';
 import { useToast } from '../../shared/ui/Toast';
 import { Alert, Button, Chip, EmptyState, PageHead, TableSkeleton } from '../../shared/ui/ui';
 import { formatDateTimeBR } from '../../shared/utils/dateUtils';
+import { useAuth } from '../../app/AuthContext';
 import UsuarioDetalhe from './UsuarioDetalhe';
 
 export default function UsersPage() {
   const toast = useToast();
+  const { user: eu } = useAuth();
   const { data, loading, error, reload } = useAsync(() => adminApi.listUsers(), []);
   const [criando, setCriando] = useState(false);
   const [editando, setEditando] = useState<AdminUser | null>(null);
@@ -52,7 +54,7 @@ export default function UsersPage() {
               {data.itens.map((u) => (
                 <tr key={u.id} style={{ opacity: u.is_active ? 1 : 0.7 }}>
                   <td><div className="strong">{u.display_name || u.username}</div><div className="cell-sub mono">{u.username}</div></td>
-                  <td>{u.is_dev ? <Chip tone="primary">Dev · todas as unidades</Chip> : <Chip tone="neutral">{u.unit_name ?? u.unit}</Chip>}</td>
+                  <td>{u.is_dev ? <Chip tone="primary">Administrador · todas as unidades</Chip> : <Chip tone="neutral">{u.unit_name ?? u.unit}</Chip>}</td>
                   <td>
                     <div className="row" style={{ gap: 4 }}>
                       <Chip tone={u.is_active ? 'success' : 'danger'}>{u.is_active ? 'Ativo' : 'Desativado'}</Chip>
@@ -65,9 +67,9 @@ export default function UsersPage() {
                   <td>
                     <div className="row" style={{ gap: 4 }}>
                       <Button size="sm" icon="eye" onClick={() => setDetalheId(u.id)} aria-label={`Detalhes de ${u.username}`}>Detalhes</Button>
-                      {!u.is_dev && <Button size="sm" icon="edit" onClick={() => setEditando(u)}>Editar</Button>}
-                      <Button size="sm" icon="key" onClick={() => setSenhaDe(u)}>Senha</Button>
-                      {!u.is_dev && (
+                      <Button size="sm" icon="edit" onClick={() => setEditando(u)}>Editar</Button>
+                      {(!u.is_dev || u.id === eu?.id) && <Button size="sm" icon="key" onClick={() => setSenhaDe(u)}>Senha</Button>}
+                      {u.id !== eu?.id && (
                         <Button size="sm" variant={u.is_active ? 'danger' : 'primary'} onClick={() => setAlternando(u)}>
                           {u.is_active ? 'Desativar' : 'Reativar'}
                         </Button>
@@ -106,6 +108,8 @@ function FormUsuario({ unidades, usuario, onClose, onSaved }: {
   const toast = useToast();
   const [username, setUsername] = useState(usuario?.username ?? '');
   const [nome, setNome] = useState(usuario?.display_name ?? '');
+  const [perfil, setPerfil] = useState<'user' | 'dev'>(usuario?.is_dev ? 'dev' : 'user');
+  const admin = perfil === 'dev';
   const [unit, setUnit] = useState<string>(usuario?.unit ?? unidades[0]?.codigo ?? '');
   const [senha, setSenha] = useState('');
   const [trocar, setTrocar] = useState(true);
@@ -118,11 +122,11 @@ function FormUsuario({ unidades, usuario, onClose, onSaved }: {
     setEnviando(true);
     try {
       if (usuario) {
-        await adminApi.updateUser(usuario.id, { display_name: nome, unit });
-        toast.success(unit !== usuario.unit ? 'Usuário atualizado. As sessões abertas foram encerradas para aplicar o novo vínculo.' : 'Usuário atualizado.');
+        await adminApi.updateUser(usuario.id, admin ? { display_name: nome } : { display_name: nome, unit });
+        toast.success(!admin && unit !== usuario.unit ? 'Usuário atualizado. As sessões abertas foram encerradas para aplicar o novo vínculo.' : 'Usuário atualizado.');
       } else {
-        await adminApi.createUser({ username, password: senha, display_name: nome, unit, must_change_password: trocar });
-        toast.success('Usuário criado.');
+        await adminApi.createUser({ username, password: senha, display_name: nome, role: perfil, ...(admin ? {} : { unit }), must_change_password: trocar });
+        toast.success(admin ? 'Administrador criado.' : 'Usuário criado.');
       }
       onSaved();
     } catch (err) {
@@ -145,17 +149,34 @@ function FormUsuario({ unidades, usuario, onClose, onSaved }: {
             <span className="muted" style={{ fontSize: 12 }}>Minúsculas, números, ponto, hífen ou sublinhado (3–64 caracteres).</span>
           </div>
         )}
+        {!usuario && (
+          <div className="field">
+            <label htmlFor="u-perfil">Perfil</label>
+            <select id="u-perfil" className="select" value={perfil} onChange={(e) => setPerfil(e.target.value as 'user' | 'dev')}>
+              <option value="user">Usuário comum (uma unidade)</option>
+              <option value="dev">Administrador (todas as unidades)</option>
+            </select>
+            {admin && (
+              <span style={{ fontSize: 12, color: 'var(--warning-text)' }}>
+                O administrador vê e altera as duas unidades, cria usuários e administradores e acessa Regras, Atribuição, Utilização e Mensagens.
+                Só administradores podem criar outro administrador.
+              </span>
+            )}
+          </div>
+        )}
         <div className="field">
           <label htmlFor="u-nome">Nome de exibição</label>
           <input id="u-nome" className="input" value={nome} onChange={(e) => setNome(e.target.value)} autoComplete="off" />
         </div>
-        <div className="field">
-          <label htmlFor="u-unit">Unidade vinculada</label>
-          <select id="u-unit" className="select" value={unit} onChange={(e) => setUnit(e.target.value)}>
-            {unidades.map((u) => <option key={u.codigo} value={u.codigo}>{u.nome}</option>)}
-          </select>
-          {usuario && unit !== usuario.unit && <span style={{ fontSize: 12, color: 'var(--warning-text)' }}>Mudar a unidade encerra as sessões abertas desta pessoa.</span>}
-        </div>
+        {!admin && (
+          <div className="field">
+            <label htmlFor="u-unit">Unidade vinculada</label>
+            <select id="u-unit" className="select" value={unit} onChange={(e) => setUnit(e.target.value)}>
+              {unidades.map((u) => <option key={u.codigo} value={u.codigo}>{u.nome}</option>)}
+            </select>
+            {usuario && unit !== usuario.unit && <span style={{ fontSize: 12, color: 'var(--warning-text)' }}>Mudar a unidade encerra as sessões abertas desta pessoa.</span>}
+          </div>
+        )}
         {!usuario && (
           <>
             <div className="field">

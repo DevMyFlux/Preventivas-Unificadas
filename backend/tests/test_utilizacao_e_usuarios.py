@@ -237,7 +237,7 @@ def test_usuario_comum_nao_altera_a_propria_unidade(app, criar_usuarios):
 def test_a_conta_administrativa_nao_pode_ser_desativada_nem_ficar_sem_administrador(app, dev):
     admin_id = servico.obter_usuario_por_username("dev").id
     r = dev.post(f"/api/admin/users/{admin_id}/active", json={"active": False})
-    assert r.status_code == 400 and r.get_json()["codigo"] == "dev_protegido"
+    assert r.status_code == 400 and r.get_json()["codigo"] in ("admin_proprio", "dev_protegido")
     assert dev.get("/api/auth/me").status_code == 200          # continua logado
     assert servico.existe_dev()
     # mesmo mexendo no vínculo ou nome, o Dev segue sem unidade (acessa todas)
