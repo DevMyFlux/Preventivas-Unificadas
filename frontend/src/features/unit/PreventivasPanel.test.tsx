@@ -68,7 +68,8 @@ describe('PreventivasPanel', () => {
     expect(within(linha).getByText('Atrasada')).toBeInTheDocument();           // texto, não só cor
     expect(linha).toHaveClass('row-late');
     const doGestor = screen.getByText('1003').closest('tr')!;
-    expect(within(doGestor).getByText('Gestão')).toBeInTheDocument();
+    expect(doGestor).toHaveClass('row-review');                                  // OS em nome do gestor continua destacada
+    expect(within(doGestor).queryByText('WILLIAN DE SOUZA LOBO')).toBeNull();     // a coluna "Responsável no Neovero" não existe mais
     expect(within(doGestor).getByText('Iranildo Silva dos Santos')).toBeInTheDocument();
     const semCand = screen.getByText('1004').closest('tr')!;
     // só o aviso; o motivo aparece quando o usuário clica
@@ -268,5 +269,33 @@ describe('PreventivasPanel — limite diário é aviso, não bloqueio', () => {
     expect(screen.queryByText(/precisam de confirmação/)).toBeNull();
     montar({ onIrParaRegras: () => {} });       // administrador
     expect((await screen.findAllByText(/precisam de confirmação/)).length).toBeGreaterThan(0);
+  });
+});
+
+describe('PreventivasPanel — coluna Recomendado sem "—" mudo', () => {
+  it('mostra o motivo de não haver recomendação (concluída, já atribuída, equipe do Neovero)', async () => {
+    fetchPreventivas.mockResolvedValue(resposta([
+      item({ os_vinculada: '5001', status: 'Concluída', sem_recomendacao_motivo: 'Concluída' }),
+      item({ os_vinculada: '5002', sem_recomendacao_motivo: 'Já atribuída' }),
+      item({ os_vinculada: '5003', responsavel_status: 'Equipe do Neovero', sem_recomendacao_motivo: 'Equipe do Neovero (automático)' }),
+      item({ os_vinculada: '5004' }),                                           // sem motivo informado: continua "—"
+    ]));
+    montar();
+    for (const [os, texto] of [['5001', 'Concluída'], ['5002', 'Já atribuída'], ['5003', 'Equipe do Neovero (automático)']]) {
+      const celulas = within((await screen.findByText(os)).closest('tr')!).getAllByRole('cell');
+      expect(celulas[celulas.length - 1]).toHaveTextContent(texto);
+    }
+    const ultima = within(screen.getByText('5004').closest('tr')!).getAllByRole('cell');
+    expect(ultima[ultima.length - 1]).toHaveTextContent('—');
+  });
+});
+
+describe('PreventivasPanel — sem a coluna "Responsável no Neovero"', () => {
+  it('a tabela não tem mais essa coluna (a Revisão continua mostrando o responsável de cada OS)', async () => {
+    montar();
+    await screen.findByText('1001');
+    const cabecalhos = screen.getAllByRole('columnheader').map((c) => c.textContent);
+    expect(cabecalhos).not.toContain('Responsável no Neovero');
+    expect(cabecalhos).toEqual(expect.arrayContaining(['Data', 'Plano', 'Status', 'OS', 'Recomendado']));
   });
 });

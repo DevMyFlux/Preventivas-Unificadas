@@ -513,8 +513,9 @@ def gerar_ocorrencias(
         precisa = oc["status"] in (*STATUS_ABERTOS, ST_PREVISTA)
         if oc["origem"] == "OS" and oc["responsavel_status"] in RESPONSAVEIS_VALIDOS:
             precisa = False   # já tem executante (ou a equipe do Neovero) — não se reatribui nem se recomenda outro
-        if (oc["origem"] == "Plano" and ctx.plano_automatico_fn is not None
-                and ctx.plano_automatico_fn(oc["plano"], oc["oficina"], oc["_tipo_id"], oc["_periodicidade"], oc["_unidade_tempo"])):
+        plano_automatico = (oc["origem"] == "Plano" and ctx.plano_automatico_fn is not None
+                            and ctx.plano_automatico_fn(oc["plano"], oc["oficina"], oc["_tipo_id"], oc["_periodicidade"], oc["_unidade_tempo"]))
+        if plano_automatico:
             precisa = False   # plano automático (rondas diárias da HMB): o Neovero atribui; não há o que recomendar
         if precisa:
             oc.update(_recomendar(oc, ctx, andares, carga_alta))
@@ -526,11 +527,29 @@ def gerar_ocorrencias(
             (oc["origem"] == "OS" and oc["status"] in STATUS_ABERTOS
              and oc["responsavel_status"] not in RESPONSAVEIS_VALIDOS)
         )
+        # por que NÃO há recomendação (a tela mostra isto no lugar de um "—" sem explicação)
+        oc["sem_recomendacao_motivo"] = None if precisa else _motivo_sem_recomendacao(oc, plano_automatico)
         oc["sem_candidato"] = bool(precisa and not oc["recomendado"])
         if oc["sem_candidato"]:
             oc["requer_intervencao"], oc["motivo_intervencao"] = True, oc["motivo_sem_candidato"]
         _finalizar_campos(oc)
     return todas
+
+
+def _motivo_sem_recomendacao(oc: dict, plano_automatico: bool) -> str | None:
+    if oc["status"] == ST_CONCLUIDA:
+        return "Concluída"
+    if oc["status"] == ST_CANCELADA:
+        return "Cancelada"
+    if oc["status"] == ST_SEM_OS:
+        return "Sem OS – verificar"
+    if oc["origem"] == "OS" and oc["responsavel_status"] == RESP_EQUIPE:
+        return "Equipe do Neovero (automático)"
+    if oc["origem"] == "OS" and oc["responsavel_status"] == RESP_ATRIBUIDA:
+        return "Já atribuída"
+    if plano_automatico:
+        return "Automático (Neovero)"
+    return None
 
 
 def _finalizar_campos(oc: dict) -> None:
