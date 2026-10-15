@@ -95,7 +95,8 @@ def tratar_erros(fn):
 
 
 def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invalidar_colaboradores, indicar_responsavel,
-                    regras=(), nomes_permitidos_fn=None, regra_cargo_fn=None) -> Blueprint:
+                    regras=(), nomes_permitidos_fn=None, regra_cargo_fn=None,
+                    plano_automatico_fn=None, nomes_equipe=frozenset()) -> Blueprint:
     bp = Blueprint(nome, __name__, url_prefix=f"/api/{cfg.PREFIXO_API}")
     prefixo_cache = f"{codigo_unidade.lower()}_"
     _travas: dict[str, threading.Lock] = defaultdict(threading.Lock)
@@ -227,6 +228,7 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
         ctx = prev.ContextoGeracao(
             colab_ativos=ativos(colab), colab_todos=colab, indicar=indicar_responsavel,
             regras_resolvidas=resolvidas(colab), nomes_permitidos_fn=nomes_permitidos_fn, regra_cargo_fn=regra_cargo_fn,
+            plano_automatico_fn=plano_automatico_fn, nomes_equipe=nomes_equipe,
             # cópias: o cache da base não pode ser mutado pela geração (acumularia a cada chamada)
             hist_tipo=dict(base["hist_tipo"]), hist_ativo=dict(base["hist_ativo"]), carga=dict(base["carga"]),
             hoje=prev.hoje_local())
@@ -315,16 +317,17 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
         colab = roster()
         abertas = carregar_abertas(h)
         ctx = prev.ContextoGeracao(colab_ativos=ativos(colab), colab_todos=colab, indicar=indicar_responsavel,
-                                   regra_cargo_fn=regra_cargo_fn)
+                                   regra_cargo_fn=regra_cargo_fn, plano_automatico_fn=plano_automatico_fn,
+                                   nomes_equipe=nomes_equipe)
         itens = []
         fora_da_regra = []
         for o in abertas:
             oc = prev._ocorrencia_de_os(o, ctx.hoje)
             if not oc:
                 continue
-            st, cadastro = prev.classificar_responsavel(oc["responsavel_atual"], ctx, oc["_dia"])
-            if st == prev.RESP_ATRIBUIDA:
-                desvio = prev._desvio_de_cargo(oc, cadastro, ctx)
+            st, cadastro = prev.classificar_responsavel_da_ocorrencia(oc, ctx)
+            if st in prev.RESPONSAVEIS_VALIDOS:
+                desvio = prev._desvio_de_cargo(oc, cadastro, ctx) if st == prev.RESP_ATRIBUIDA else None
                 if desvio:   # executante válido, mas cargo fora do exigido pelo plano (só sinaliza)
                     fora_da_regra.append({
                         "os_numero": oc["os_vinculada"], "data_prev": oc["_dia"].strftime("%d/%m/%Y"), "plano": oc["plano"],

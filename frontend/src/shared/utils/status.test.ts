@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calcBarWidths } from './barChart';
-import { STATUS_EXECUCAO, toneDaProposta, toneDoResponsavel, toneDoStatus } from './status';
+import { HINT_RESPONSAVEL, STATUS_EXECUCAO, toneDaProposta, toneDoResponsavel, toneDoStatus } from './status';
 
 describe('status de execução', () => {
   it('cobre os sete status do backend, cada um com dica explicativa', () => {
@@ -39,5 +39,12 @@ describe('calcBarWidths', () => {
     expect(calcBarWidths([{ qtd: 10 }, { qtd: 5 }, { qtd: 0 }]).map((x) => x.pct)).toEqual([100, 50, 0]);
     expect(calcBarWidths([])).toEqual([]);
     expect(calcBarWidths([{ qtd: 0 }]).map((x) => x.pct)).toEqual([0]);
+  });
+});
+
+describe('responsável de equipe do Neovero (rondas diárias da HMB)', () => {
+  it('é tratado como correto (verde) e tem dica explicativa', () => {
+    expect(toneDoResponsavel('Equipe do Neovero')).toBe('success');
+    expect(HINT_RESPONSAVEL['Equipe do Neovero']).toMatch(/automaticamente/);
   });
 });

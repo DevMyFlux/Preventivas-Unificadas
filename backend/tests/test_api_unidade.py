@@ -252,7 +252,20 @@ def test_revisao_lista_os_abertas_em_nome_de_gestao_desligado_ou_generico(ana, n
 
 # ── regras nominais (5.4 / 5.5) pela API ──────────────────────────────────────
 
-def test_endpoint_de_regras_mostra_pendencias_e_nao_adivinha(dev, neovero):
+@pytest.fixture()
+def ronda_reativada():
+    """Reativa temporariamente a tabela das rondas (desativada no produto) para exercitar a API de confirmação de nomes."""
+    from units.brasilandia.regras import REGRAS, RONDA_DIARIA
+    REGRAS.insert(0, RONDA_DIARIA)
+    yield
+    REGRAS.remove(RONDA_DIARIA)
+
+
+def test_regras_ativas_da_hmb_nao_incluem_as_rondas_automaticas(dev, neovero):
+    assert [r["id"] for r in dev.get(f"{P}/regras").get_json()["regras"]] == ["oficina_ar_comprimido_vacuo"]
+
+
+def test_endpoint_de_regras_mostra_pendencias_e_nao_adivinha(dev, neovero, ronda_reativada):
     d = dev.get(f"{P}/regras").get_json()
     regras = {r["id"]: r for r in d["regras"]}
     ronda = {(l["turno"], l["paridade"]): l for l in regras["ronda_diaria"]["linhas"]}
@@ -263,8 +276,8 @@ def test_endpoint_de_regras_mostra_pendencias_e_nao_adivinha(dev, neovero):
     assert ronda[("Noturno", "Par")]["responsaveis"][0]["status"] == "nao_encontrado"
 
 
-def test_confirmar_nome_da_regra_valida_alias_e_colaborador_e_vale_na_proxima_geracao(dev, neovero):
-    neovero.os_periodo = [os_neovero(31, "2026-10-14", situacao=1, responsavel="ELÉTRICA - DIURNO", responsavel_id=67,
+def test_confirmar_nome_da_regra_valida_alias_e_colaborador_e_vale_na_proxima_geracao(dev, neovero, ronda_reativada):
+    neovero.os_periodo = [os_neovero(31, "2026-10-14", situacao=1, responsavel="WILLIAN DE SOUZA LOBO", responsavel_id=31,
                                      plano="PM - DIÁRIO - RONDA – NOBREAK", oficina="ELÉTRICA/QGBT", tipo="RONDA",
                                      tipo_id=8, periodicidade=1, unidade_tempo="D")]
     antes = _get(dev, data_ini="2026-10-14", data_fim="2026-10-14").get_json()

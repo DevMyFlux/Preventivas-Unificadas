@@ -7,7 +7,11 @@ from datetime import date
 from core.regras.atribuicao import ContextoOcorrencia, aplicar_regras, paridade_do_dia, resolver_regras
 from core.regras.nomes import resolver_alias
 from tests.fakes import colaboradores_df
-from units.brasilandia.regras import REGRAS
+from units.brasilandia.regras import OFICINA_AR_COMPRIMIDO_VACUO, REGRAS as REGRAS_ATIVAS, RONDA_DIARIA
+
+# A tabela das rondas está DESATIVADA no produto (rondas diárias são automáticas no Neovero); o mecanismo e a tabela
+# continuam testados aqui, com a regra incluída explicitamente.
+REGRAS = [RONDA_DIARIA, OFICINA_AR_COMPRIMIDO_VACUO]
 
 # Quadro da HMB em out/2026 (nomes/cargos/regimes reais da escala)
 QUADRO = [
@@ -151,3 +155,10 @@ def test_desligado_nao_entra_no_quadro_de_resolucao():
     res = resolver_regras(REGRAS, colaboradores_df(quadro))
     linha = res["oficina_ar_comprimido_vacuo"].linhas[("Diurno", "Ímpar")]
     assert linha.status == "ok" and linha.nomes == ["Israel Pereira Bomfim"]
+
+
+def test_rondas_diarias_nao_fazem_mais_parte_das_regras_ativas_da_hmb():
+    assert [r.id for r in REGRAS_ATIVAS] == ["oficina_ar_comprimido_vacuo"]
+    ap = aplicar_regras(resolver_regras(REGRAS_ATIVAS, colaboradores_df(QUADRO)),
+                        _ctx("PM - DIÁRIO - RONDA – CHILLERS", date(2026, 10, 13)))
+    assert ap.status == "sem_regra"          # nenhuma pendência de "Michael"/"Diego H"

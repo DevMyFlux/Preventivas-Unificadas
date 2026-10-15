@@ -64,7 +64,25 @@ sessão). O teste antigo que *exigia* recomendar a gestora quando era a única o
   supervisão entender que rondas **não** consomem o limite, incluir `8` (tipo RONDA no Neovero) em
   `TIPO_IDS_ISENTOS_LIMITE` — há teste cobrindo as duas situações.
 
-## 5.4 Rondas diárias (HMB)
+## 5.4 Rondas diárias (HMB) — AUTOMÁTICAS no Neovero
+
+**Retorno dos gestores (15/10/2026):** as rondas diárias são automáticas — o Neovero já cria cada uma com um dos 4 responsáveis de
+equipe (**ELÉTRICA-DIURNO, ELÉTRICA-NOTURNO, CLIMATIZAÇÃO-DIURNO, CLIMATIZAÇÃO-NOTURNO**) e “os responsáveis já puxam
+diretamente do Neovero”. Dados reais (set–out): 1 698 OS de ronda diária; 1 238 delas com essas equipes (35 ainda abertas).
+Decisão adotada (“seguir o Neovero”), **só na HMB**:
+
+- as 4 equipes valem como **responsável correto** das rondas diárias: etiqueta **“Equipe do Neovero”**, fora da Revisão e fora
+  de “Genérico”; o plano que as tem como responsável padrão também deixa de aparecer em “Planos com responsável inválido”;
+- o sistema **não recomenda executante** para rondas diárias (OS nem projeções);
+- a tabela nominal abaixo está **desativada** (`REGRAS_DESATIVADAS` em `units/brasilandia/regras.py`) — some a pendência de “Michael” e
+  “Diego H”; o código e os testes continuam, caso seja pedido reativar;
+- uma ronda diária em nome de **gestor** (ou desligado/bloqueado/vazio) continua sendo sinalizada e recebe recomendação;
+- nomes de equipe só valem em plano automático: em outro plano (ex.: mensal) “ELÉTRICA - DIURNO” segue como Genérico.
+
+Efeito medido nos dados reais da HMB: OS abertas em Revisão **294 → 259** (−35); Genérico entre as abertas 38 → 3; “sem candidato”
+635 → 64 (restam só os de ar comprimido/vácuo); “requer intervenção” 788 → 98.
+
+**Tabela antiga (desativada)**
 
 | Turno | Dia | Responsável informado | Situação na escala de out/2026 |
 |---|---|---|---|

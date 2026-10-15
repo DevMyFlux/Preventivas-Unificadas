@@ -47,7 +47,7 @@ from core.regras import elegibilidade as eleg
 from core.regras import limites
 from core.regras.cargos import violacao as violacao_cargo
 from core.regras.atribuicao import ContextoOcorrencia, aplicar_regras, paridade_do_dia
-from core.regras.nomes import encontrar_no_cadastro
+from core.regras.nomes import encontrar_no_cadastro, normalizar_nome
 
 # ── Status ────────────────────────────────────────────────────────────────────
 ST_CONCLUIDA = "Concluída"
@@ -67,6 +67,10 @@ RESP_GESTAO = "Gestão"
 RESP_GENERICO = "Genérico"
 RESP_DESLIGADO = "Desligado"
 RESP_BLOQUEADO = "Bloqueado"
+# Responsável de EQUIPE atribuído pelo próprio Neovero a um plano automático (ex.: rondas diárias da HMB): é o esperado —
+# não vai para a Revisão e não recebe recomendação.
+RESP_EQUIPE = "Equipe do Neovero"
+RESPONSAVEIS_VALIDOS = (RESP_ATRIBUIDA, RESP_EQUIPE)
 
 MOTIVOS_TEXTO = {
     "sem_colaboradores": "Cadastro de colaboradores indisponível.",
@@ -124,6 +128,9 @@ class ContextoGeracao:
     regras_resolvidas: dict = field(default_factory=dict)
     nomes_permitidos_fn: object = None   # (descricao_plano, dia_par) -> set|None (escala nomeada HETRIN)
     regra_cargo_fn: object = None        # (descricao_plano) -> RegraCargo|None (cargo exigido pelo plano; por unidade)
+    # Planos que o Neovero atribui sozinho a uma EQUIPE (HMB: rondas diárias): (desc, oficina, tipo_id, periodicidade, unidade) -> bool
+    plano_automatico_fn: object = None
+    nomes_equipe: frozenset = frozenset()   # nomes normalizados dos responsáveis de equipe aceitos nesses planos
     hist_tipo: dict = field(default_factory=dict)
     hist_ativo: dict = field(default_factory=dict)
     carga: dict = field(default_factory=dict)
@@ -155,6 +162,16 @@ def classificar_responsavel(nome_neovero: str | None, ctx: ContextoGeracao, dia:
 
 
 # ── construção das ocorrências ────────────────────────────────────────────────
+
+def classificar_responsavel_da_ocorrencia(oc: dict, ctx: ContextoGeracao) -> tuple[str, str | None]:
+    """Como `classificar_responsavel`, mas reconhece o responsável de EQUIPE do Neovero em planos automáticos."""
+    status, cadastro = classificar_responsavel(oc["responsavel_atual"], ctx, oc["_dia"])
+    if (status == RESP_GENERICO and ctx.plano_automatico_fn is not None and ctx.nomes_equipe
+            and normalizar_nome(oc["responsavel_atual"] or "") in ctx.nomes_equipe
+            and ctx.plano_automatico_fn(oc["plano"], oc["oficina"], oc["_tipo_id"], oc["_periodicidade"], oc["_unidade_tempo"])):
+        return RESP_EQUIPE, None
+    return status, cadastro
+
 
 def _contexto_regra(desc: str, oficina: str, tipo_id, periodicidade, unidade_tempo, dia: date) -> ContextoOcorrencia:
     return ContextoOcorrencia(
@@ -335,6 +352,11 @@ def planos_com_responsavel_invalido(planos: list[dict], os_abertas: list[dict], 
         else:
             nome = nomes[rid]
             status, _ = classificar_responsavel(nome, ctx, ctx.hoje)
+            if (status == RESP_GENERICO and ctx.plano_automatico_fn is not None and normalizar_nome(nome) in ctx.nomes_equipe
+                    and ctx.plano_automatico_fn(p.get("descricao") or "", ((p.get("oficina") or {}).get("descricao") or ""),
+                                                (p.get("tipoManutencao") or {}).get("id"), p.get("periodicidade"),
+                                                p.get("periodicidadeTempoUnidade"))):
+                continue   # equipe do Neovero como padrão de um plano automático: é o esperado
         if status == RESP_ATRIBUIDA:
             continue
         saida.append({"plano_id": p.get("id"), "plano": p.get("descricao") or "", "responsavel_id": rid,
@@ -471,7 +493,7 @@ def gerar_ocorrencias(
 
     # 3) responsável atual das OS reais + registro na ocupação diária (sem dupla contagem)
     for oc in reais:
-        status_resp, cadastro = classificar_responsavel(oc["responsavel_atual"], ctx, oc["_dia"])
+        status_resp, cadastro = classificar_responsavel_da_ocorrencia(oc, ctx)
         oc["responsavel_status"] = status_resp
         oc["responsavel_cadastro"] = cadastro
         oc["cargo_fora_da_regra"] = _desvio_de_cargo(oc, cadastro, ctx) if oc["status"] in STATUS_ABERTOS else None
@@ -489,8 +511,11 @@ def gerar_ocorrencias(
         oc.setdefault("cargo_fora_da_regra", None)
         # "Sem OS – verificar" (projeção de data passada) não é acionável: nada a recomendar
         precisa = oc["status"] in (*STATUS_ABERTOS, ST_PREVISTA)
-        if oc["origem"] == "OS" and oc["responsavel_status"] == RESP_ATRIBUIDA:
-            precisa = False   # já tem executante válido — não se reatribui nem se recomenda outro
+        if oc["origem"] == "OS" and oc["responsavel_status"] in RESPONSAVEIS_VALIDOS:
+            precisa = False   # já tem executante (ou a equipe do Neovero) — não se reatribui nem se recomenda outro
+        if (oc["origem"] == "Plano" and ctx.plano_automatico_fn is not None
+                and ctx.plano_automatico_fn(oc["plano"], oc["oficina"], oc["_tipo_id"], oc["_periodicidade"], oc["_unidade_tempo"])):
+            precisa = False   # plano automático (rondas diárias da HMB): o Neovero atribui; não há o que recomendar
         if precisa:
             oc.update(_recomendar(oc, ctx, andares, carga_alta))
         else:
@@ -499,7 +524,7 @@ def gerar_ocorrencias(
                        "requer_intervencao": False, "motivo_intervencao": None})
         oc["revisao"] = bool(
             (oc["origem"] == "OS" and oc["status"] in STATUS_ABERTOS
-             and oc["responsavel_status"] != RESP_ATRIBUIDA)
+             and oc["responsavel_status"] not in RESPONSAVEIS_VALIDOS)
         )
         oc["sem_candidato"] = bool(precisa and not oc["recomendado"])
         if oc["sem_candidato"]:
