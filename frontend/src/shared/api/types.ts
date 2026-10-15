@@ -50,6 +50,7 @@ export type StatusResponsavel =
   | 'Genérico'
   | 'Desligado'
   | 'Bloqueado'
+  | 'Equipe do Neovero'
   | '—';
 
 export interface Preventiva {

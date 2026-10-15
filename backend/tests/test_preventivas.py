@@ -11,7 +11,9 @@ from core import preventivas as prev
 from core.motor_base import indicar_responsavel
 from core.regras.atribuicao import resolver_regras
 from tests.fakes import colaboradores_df, item_plano, os_neovero, plano_neovero
-from units.brasilandia.regras import REGRAS
+from units.brasilandia.regras import OFICINA_AR_COMPRIMIDO_VACUO, RONDA_DIARIA
+
+REGRAS = [RONDA_DIARIA, OFICINA_AR_COMPRIMIDO_VACUO]    # a tabela das rondas está desativada no produto; aqui testa-se o mecanismo
 
 HOJE = date(2026, 10, 14)
 

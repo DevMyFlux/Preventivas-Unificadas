@@ -19,6 +19,7 @@ export function toneDoStatus(s: string): Tone {
 export function toneDoResponsavel(s: StatusResponsavel | string): Tone {
   switch (s) {
     case 'Atribuída': return 'success';
+    case 'Equipe do Neovero': return 'success';
     case 'Gestão': return 'warning';
     case 'Genérico': return 'warning';
     case 'Desligado': return 'danger';
@@ -30,6 +31,7 @@ export function toneDoResponsavel(s: StatusResponsavel | string): Tone {
 
 export const HINT_RESPONSAVEL: Record<string, string> = {
   'Atribuída': 'Executante válido do quadro',
+  'Equipe do Neovero': 'Responsável de equipe atribuído automaticamente pelo Neovero às rondas diárias — é o esperado',
   'Gestão': 'OS em nome de quem gerencia (padrão do plano no Neovero) — não é executante',
   'Genérico': 'Nome genérico do Neovero (ex.: "ELÉTRICA - DIURNO"), não é uma pessoa',
   'Desligado': 'Executante já desligado nesta data',
