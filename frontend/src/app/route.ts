@@ -3,7 +3,7 @@
  * recarregar a página e permite compartilhar o link. A rota é só NAVEGAÇÃO — quem decide o que o
  * usuário pode ver é o backend (uma rota proibida aqui apenas recebe 403).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export const PAGINAS_UNIDADE = ['preventivas', 'planos', 'colaboradores', 'revisao', 'atribuicoes', 'regras'] as const;
 export type PaginaUnidade = (typeof PAGINAS_UNIDADE)[number];
@@ -49,5 +49,8 @@ export function useRota(unidadePadrao: string): [Rota, (r: Rota) => void] {
     if (window.location.hash !== h) window.location.hash = h;
     else setHash(h);
   }, []);
-  return [parseRota(hash, unidadePadrao), navegar];
+  // memoizada: o MESMO objeto enquanto a rota não muda. Sem isso, todo efeito que depende de `rota` (registrar atividade, fechar o menu
+  // do celular, título) rodava a cada renderização — registrando atividade falsa e fechando o menu logo ao abrir.
+  const rota = useMemo(() => parseRota(hash, unidadePadrao), [hash, unidadePadrao]);
+  return [rota, navegar];
 }

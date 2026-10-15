@@ -316,3 +316,39 @@ describe('Sugestões e Suporte', () => {
     expect(within(form).getByRole('button', { name: /Enviar/ })).toBeDisabled();
   });
 });
+
+describe('navegação: a atividade só é registrada ao navegar (não a cada renderização)', () => {
+  it('re-renderizar a tela (tema, contadores, prazo da sessão) NÃO dispara novo registro de atividade nem renova a sessão', async () => {
+    mocks.me.mockResolvedValue(sessao(usuario({})));
+    render(<App />);
+    await screen.findByLabelText('Navegação principal');
+    await waitFor(() => expect(mocks.activity).toHaveBeenCalled());
+    const antes = mocks.activity.mock.calls.length;
+    await userEvent.click(screen.getByRole('button', { name: /Usar tema escuro/ }));          // re-renderiza o Shell
+    await userEvent.click(screen.getByRole('button', { name: /Usar tema claro/ }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mocks.activity.mock.calls.length).toBe(antes);
+  });
+
+  it('trocar de módulo registra exatamente uma atividade', async () => {
+    mocks.me.mockResolvedValue(sessao(usuario({})));
+    render(<App />);
+    const lateral = await screen.findByLabelText('Navegação principal');
+    await waitFor(() => expect(mocks.activity).toHaveBeenCalled());
+    const antes = mocks.activity.mock.calls.length;
+    await userEvent.click(within(lateral).getByRole('button', { name: /^Colaboradores/ }));
+    await waitFor(() => expect(mocks.activity.mock.calls.length).toBe(antes + 1));
+    expect(mocks.activity).toHaveBeenLastCalledWith('colaboradores', 'HMB');
+  });
+
+  it('no celular, o botão de menu abre a lateral e ela continua aberta até escolher um módulo', async () => {
+    mocks.me.mockResolvedValue(sessao(usuario({})));
+    const { container } = render(<App />);
+    const lateral = await screen.findByLabelText('Navegação principal');
+    await userEvent.click(screen.getByRole('button', { name: 'Abrir menu' }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(container.querySelector('.sidebar')).toHaveClass('open');
+    await userEvent.click(within(lateral).getByRole('button', { name: /^Revisão/ }));
+    await waitFor(() => expect(container.querySelector('.sidebar')).not.toHaveClass('open'));      // fecha ao navegar
+  });
+});
