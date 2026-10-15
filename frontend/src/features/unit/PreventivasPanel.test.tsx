@@ -68,7 +68,8 @@ describe('PreventivasPanel', () => {
     expect(within(linha).getByText('Atrasada')).toBeInTheDocument();           // texto, não só cor
     expect(linha).toHaveClass('row-late');
     const doGestor = screen.getByText('1003').closest('tr')!;
-    expect(within(doGestor).getByText('Gestão')).toBeInTheDocument();
+    expect(doGestor).toHaveClass('row-review');                                  // OS em nome do gestor continua destacada
+    expect(within(doGestor).queryByText('WILLIAN DE SOUZA LOBO')).toBeNull();     // a coluna "Responsável no Neovero" não existe mais
     expect(within(doGestor).getByText('Iranildo Silva dos Santos')).toBeInTheDocument();
     const semCand = screen.getByText('1004').closest('tr')!;
     // só o aviso; o motivo aparece quando o usuário clica
@@ -286,5 +287,15 @@ describe('PreventivasPanel — coluna Recomendado sem "—" mudo', () => {
     }
     const ultima = within(screen.getByText('5004').closest('tr')!).getAllByRole('cell');
     expect(ultima[ultima.length - 1]).toHaveTextContent('—');
+  });
+});
+
+describe('PreventivasPanel — sem a coluna "Responsável no Neovero"', () => {
+  it('a tabela não tem mais essa coluna (a Revisão continua mostrando o responsável de cada OS)', async () => {
+    montar();
+    await screen.findByText('1001');
+    const cabecalhos = screen.getAllByRole('columnheader').map((c) => c.textContent);
+    expect(cabecalhos).not.toContain('Responsável no Neovero');
+    expect(cabecalhos).toEqual(expect.arrayContaining(['Data', 'Plano', 'Status', 'OS', 'Recomendado']));
   });
 });

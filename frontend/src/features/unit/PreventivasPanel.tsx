@@ -7,7 +7,7 @@ import DayPicker from '../../shared/ui/DayPicker';
 import { useToast } from '../../shared/ui/Toast';
 import { Alert, Button, Chip, EmptyState, KpiCard, PageHead, Pagination, TableSkeleton } from '../../shared/ui/ui';
 import { formatDateTimeBR } from '../../shared/utils/dateUtils';
-import { HINT_RESPONSAVEL, STATUS_EXECUCAO, toneDoResponsavel, toneDoStatus } from '../../shared/utils/status';
+import { STATUS_EXECUCAO, toneDoStatus } from '../../shared/utils/status';
 
 interface Props {
   client: UnitApiClient;
@@ -268,7 +268,6 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
                   <th scope="col" className="hide-md">Equipamento / Setor</th>
                   <th scope="col">Status</th>
                   <th scope="col">OS</th>
-                  <th scope="col">Responsável no Neovero</th>
                   <th scope="col">Recomendado</th>
                 </tr>
               </thead>
@@ -312,17 +311,6 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
       </td>
       <td className="mono">{it.os_vinculada !== '—' ? it.os_vinculada : <span className="muted">—</span>}</td>
       <td>
-        {it.responsavel_atual ? (
-          <>
-            <div className="cell-clip" title={it.responsavel_atual}>{it.responsavel_atual}</div>
-            <Chip tone={toneDoResponsavel(it.responsavel_status)} title={HINT_RESPONSAVEL[it.responsavel_status]}>
-              {it.responsavel_status}
-            </Chip>
-            {it.cargo_fora_da_regra && <div className="cell-sub" style={{ color: 'var(--warning-text)' }}>{it.cargo_fora_da_regra}</div>}
-          </>
-        ) : <span className="muted">{it.origem === 'Plano' ? 'Ainda sem OS' : 'Sem responsável'}</span>}
-      </td>
-      <td>
         {nomes.length > 0 ? (
           <>
             <div className="strong">{nomes.join(' + ')}</div>
@@ -338,6 +326,7 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
             )}
           </>
         ) : <span className="muted" title="Não é preciso recomendar executante nesta linha">{it.sem_recomendacao_motivo ?? '—'}</span>}
+        {it.cargo_fora_da_regra && <div className="cell-sub" style={{ color: 'var(--warning-text)' }}>{it.cargo_fora_da_regra}</div>}
       </td>
     </tr>
   );
