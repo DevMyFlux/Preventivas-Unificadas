@@ -291,6 +291,24 @@ describe('PreventivasPanel — coluna Recomendado sem recomendação', () => {
   });
 });
 
+describe('PreventivasPanel — rondas automáticas mostram as pessoas de plantão', () => {
+  it('mostra os nomes de quem está de plantão e, em segundo plano, a equipe do Neovero', async () => {
+    fetchPreventivas.mockResolvedValue(resposta([
+      item({ os_vinculada: '6001', responsavel_status: 'Equipe do Neovero', responsavel_nome: 'ELÉTRICA - DIURNO',
+        responsaveis_plantao: ['Andrew Matheus Ganacevici', 'Iranildo Silva dos Santos', 'Marcelo Batista de Jesus'] }),
+      item({ os_vinculada: '6002', responsavel_status: 'Equipe do Neovero', responsavel_nome: 'CLIMATIZAÇÃO - NOTURNO', responsaveis_plantao: [] }),
+    ]));
+    montar();
+    const comPlantao = within((await screen.findByText('6001')).closest('tr')!);
+    expect(comPlantao.getByText('Andrew Matheus Ganacevici, Iranildo Silva dos Santos, Marcelo Batista de Jesus')).toBeInTheDocument();
+    expect(comPlantao.getByText('Plantão · ELÉTRICA - DIURNO')).toBeInTheDocument();
+    // ninguém de plantão: cai para o nome da equipe, sem inventar pessoa
+    const semPlantao = within(screen.getByText('6002').closest('tr')!);
+    expect(semPlantao.getByText('CLIMATIZAÇÃO - NOTURNO')).toBeInTheDocument();
+    expect(semPlantao.queryByText(/Plantão ·/)).toBeNull();
+  });
+});
+
 describe('PreventivasPanel — sem a coluna "Responsável no Neovero"', () => {
   it('a tabela não tem mais essa coluna (a Revisão continua mostrando o responsável de cada OS)', async () => {
     montar();

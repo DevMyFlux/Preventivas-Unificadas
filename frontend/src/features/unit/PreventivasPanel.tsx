@@ -327,9 +327,16 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
           </>
         ) : it.sem_recomendacao_motivo
           ? <span className="muted" title="Não é preciso recomendar executante nesta linha">{it.sem_recomendacao_motivo}</span>
-          : it.responsavel_nome
-            ? <div className="cell-clip" title={`Responsável: ${it.responsavel_nome}`}>{it.responsavel_nome}</div>
-            : <span className="muted">—</span>}
+          : it.responsaveis_plantao && it.responsaveis_plantao.length > 0
+            ? (
+              <>
+                <div className="strong" style={{ whiteSpace: 'normal' }}>{it.responsaveis_plantao.join(', ')}</div>
+                <div className="cell-sub" title="Equipe do Neovero responsável por esta ronda">Plantão · {it.responsavel_nome}</div>
+              </>
+            )
+            : it.responsavel_nome
+              ? <div className="cell-clip" title={`Responsável: ${it.responsavel_nome}`}>{it.responsavel_nome}</div>
+              : <span className="muted">—</span>}
         {it.cargo_fora_da_regra && <div className="cell-sub" style={{ color: 'var(--warning-text)' }}>{it.cargo_fora_da_regra}</div>}
       </td>
     </tr>

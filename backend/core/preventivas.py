@@ -131,6 +131,8 @@ class ContextoGeracao:
     # Planos que o Neovero atribui sozinho a uma EQUIPE (HMB: rondas diárias): (desc, oficina, tipo_id, periodicidade, unidade) -> bool
     plano_automatico_fn: object = None
     nomes_equipe: frozenset = frozenset()   # nomes normalizados dos responsáveis de equipe aceitos nesses planos
+    # (colab_ativos, equipe_normalizada, dia) -> nomes de quem está de plantão nessa equipe nesse dia (a tela mostra as pessoas, não a equipe)
+    plantonistas_fn: object = None
     hist_tipo: dict = field(default_factory=dict)
     hist_ativo: dict = field(default_factory=dict)
     carga: dict = field(default_factory=dict)
@@ -501,6 +503,7 @@ def gerar_ocorrencias(
             nomes_por_id.setdefault(rid, nome)
     for pr in projecoes:
         pr["responsavel_nome"] = nomes_por_id.get(pr.get("_resp_plano_id"))
+        pr["responsaveis_plantao"] = _plantao_da_equipe(pr, ctx)
 
     # 3) responsável atual das OS reais + registro na ocupação diária (sem dupla contagem)
     for oc in reais:
@@ -508,6 +511,7 @@ def gerar_ocorrencias(
         oc["responsavel_status"] = status_resp
         oc["responsavel_cadastro"] = cadastro
         oc["responsavel_nome"] = oc["responsavel_atual"]
+        oc["responsaveis_plantao"] = _plantao_da_equipe(oc, ctx) if status_resp == RESP_EQUIPE else []
         oc["cargo_fora_da_regra"] = _desvio_de_cargo(oc, cadastro, ctx) if oc["status"] in STATUS_ABERTOS else None
         if cadastro and oc["status"] != ST_CANCELADA and not limites.tipo_isento(oc["_tipo_id"]):
             ctx.ocupacao.registrar(cadastro, oc["_dia"], limites.chave_os(oc["os_vinculada"]))
@@ -522,6 +526,7 @@ def gerar_ocorrencias(
         oc.setdefault("responsavel_cadastro", None)
         oc.setdefault("cargo_fora_da_regra", None)
         oc.setdefault("responsavel_nome", None)
+        oc.setdefault("responsaveis_plantao", [])
         # "Sem OS – verificar" (projeção de data passada) não é acionável: nada a recomendar
         precisa = oc["status"] in (*STATUS_ABERTOS, ST_PREVISTA)
         if oc["origem"] == "OS" and oc["responsavel_status"] in RESPONSAVEIS_VALIDOS:
@@ -548,6 +553,23 @@ def gerar_ocorrencias(
             oc["requer_intervencao"], oc["motivo_intervencao"] = True, oc["motivo_sem_candidato"]
         _finalizar_campos(oc)
     return todas
+
+
+def _plantao_da_equipe(oc: dict, ctx: ContextoGeracao) -> list[str]:
+    """Pessoas de plantão (escala) na EQUIPE do Neovero que responde pela ocorrência, no dia dela. Só para equipes reconhecidas em
+    planos automáticos; sem equipe, sem função da unidade ou sem ninguém de plantão: lista vazia (a tela cai para o nome da equipe)."""
+    if ctx.plantonistas_fn is None or not ctx.nomes_equipe:
+        return []
+    nome = normalizar_nome(oc.get("responsavel_nome") or "")
+    if nome not in ctx.nomes_equipe:
+        return []
+    # a escala carregada é a do MÊS CORRENTE (premissa geral do sistema): em outros meses o plantão não é conhecido — não inventa pessoa
+    if (oc["_dia"].year, oc["_dia"].month) != (ctx.hoje.year, ctx.hoje.month):
+        return []
+    if oc["origem"] == "Plano" and not (ctx.plano_automatico_fn and ctx.plano_automatico_fn(
+            oc["plano"], oc["oficina"], oc["_tipo_id"], oc["_periodicidade"], oc["_unidade_tempo"])):
+        return []
+    return ctx.plantonistas_fn(ctx.colab_ativos, nome, oc["_dia"])
 
 
 def _motivo_sem_recomendacao(oc: dict) -> str | None:

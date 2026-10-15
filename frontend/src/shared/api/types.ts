@@ -88,6 +88,8 @@ export interface Preventiva {
   sem_recomendacao_motivo?: string | null;
   /** nome do responsável (OS: o do Neovero; previsão: o padrão do plano) — mostrado nos casos automáticos, sem rótulo */
   responsavel_nome?: string | null;
+  /** rondas automáticas (HMB): quem está de plantão, na escala, na equipe do Neovero que responde pela OS naquele dia */
+  responsaveis_plantao?: string[];
   regra: { id: string; status: 'aplicada' | 'pendente'; mensagem: string } | null;
   alertas: string[];
   /** cargo exigido pelo plano (regra de cargo da unidade), quando existe */
