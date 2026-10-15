@@ -107,8 +107,15 @@ def test_planos_de_ronda_com_equipe_como_padrao_nao_aparecem_como_responsavel_in
     assert 1 not in invalidos          # ronda diária: a equipe é o esperado
 
 
-def test_equipe_e_projecao_de_ronda_dizem_que_e_automatico():
-    assert _gerar(_ctx(), [_ronda(31, "ELÉTRICA - DIURNO")])[0]["sem_recomendacao_motivo"] == "Equipe do Neovero (automático)"
+def test_ronda_automatica_mostra_o_nome_do_responsavel_e_nao_um_status():
+    """O campo mostra o NOME do responsável (equipe do Neovero), independente do ocorrido — nunca um rótulo de status."""
+    oc = _gerar(_ctx(), [_ronda(31, "ELÉTRICA - DIURNO")])[0]
+    assert oc["responsavel_nome"] == "ELÉTRICA - DIURNO" and oc["recomendado"] is None
+    # previsão (sem OS): o responsável PADRÃO do plano, cujo nome vem das OS carregadas com o mesmo id
     plano = plano_neovero(1, "PM - DIÁRIO - RONDA – CHILLERS", oficina="ELÉTRICA", periodicidade=1, unidade="D", tipo_id=8)
-    proj = [o for o in _gerar(_ctx(), [], [plano], {1: [item_plano(10, "2026-10-15", equip_id=77)]}) if o["origem"] == "Plano"]
-    assert proj and all(o["sem_recomendacao_motivo"] == "Automático (Neovero)" for o in proj)
+    plano["responsavelId"] = 67
+    ocs = _gerar(_ctx(), [_ronda(32, "ELÉTRICA - DIURNO", situacao=3)], [plano], {1: [item_plano(10, "2026-10-15", equip_id=77)]})
+    proj = [o for o in ocs if o["origem"] == "Plano"]
+    assert proj and all(o["responsavel_nome"] == "ELÉTRICA - DIURNO" and o["recomendado"] is None for o in proj)
+    sem_nome = _gerar(_ctx(), [], [{**plano, "responsavelId": 999}], {1: [item_plano(10, "2026-10-15", equip_id=77)]})
+    assert all(o["responsavel_nome"] is None for o in sem_nome if o["origem"] == "Plano")      # id desconhecido: não inventa

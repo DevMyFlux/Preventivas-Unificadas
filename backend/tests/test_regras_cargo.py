@@ -243,7 +243,7 @@ def test_nomes_novos_dos_status_futuro_e_passado():
     assert prev.classificar_status(None, date(2026, 10, 10), HOJE) == ("Sem OS – verificar", False)
 
 
-def test_linhas_sem_recomendacao_explicam_o_motivo_em_vez_de_ficar_em_branco():
+def test_linhas_sem_recomendacao_trazem_o_nome_do_responsavel_independente_do_ocorrido():
     ctx = _ctx([ELETRICISTA])
     reais = [
         os_neovero(1, "2026-10-10", situacao=3, responsavel="ELETRICISTA A", responsavel_id=2, equip_id=1),     # concluída
@@ -252,7 +252,6 @@ def test_linhas_sem_recomendacao_explicam_o_motivo_em_vez_de_ficar_em_branco():
         _os(4, "PM - MENSAL - SPLIT"),                                                                              # gestor: recebe recomendação
     ]
     por = {o["os_vinculada"]: o for o in _gerar(ctx, reais)}
-    assert por["1"]["sem_recomendacao_motivo"] == "Concluída"
-    assert por["2"]["sem_recomendacao_motivo"] == "Cancelada"
-    assert por["3"]["sem_recomendacao_motivo"] == "Já atribuída"
-    assert por["4"]["recomendado"] == "Eletricista A" and por["4"]["sem_recomendacao_motivo"] is None
+    assert [por[n]["responsavel_nome"] for n in "123"] == ["ELETRICISTA A"] * 3          # concluída, cancelada e já atribuída
+    assert all(por[n]["recomendado"] is None for n in "123")
+    assert por["4"]["recomendado"] == "Eletricista A" and por["4"]["responsavel_nome"] == SUPERVISAO
