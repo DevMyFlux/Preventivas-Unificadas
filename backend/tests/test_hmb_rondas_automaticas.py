@@ -105,3 +105,10 @@ def test_planos_de_ronda_com_equipe_como_padrao_nao_aparecem_como_responsavel_in
     neovero.os_periodo = list(neovero.os_abertas)
     invalidos = {p["plano_id"] for p in ana.get(f"{P}/revisao").get_json()["planos_responsavel_invalido"]}
     assert 1 not in invalidos          # ronda diária: a equipe é o esperado
+
+
+def test_equipe_e_projecao_de_ronda_dizem_que_e_automatico():
+    assert _gerar(_ctx(), [_ronda(31, "ELÉTRICA - DIURNO")])[0]["sem_recomendacao_motivo"] == "Equipe do Neovero (automático)"
+    plano = plano_neovero(1, "PM - DIÁRIO - RONDA – CHILLERS", oficina="ELÉTRICA", periodicidade=1, unidade="D", tipo_id=8)
+    proj = [o for o in _gerar(_ctx(), [], [plano], {1: [item_plano(10, "2026-10-15", equip_id=77)]}) if o["origem"] == "Plano"]
+    assert proj and all(o["sem_recomendacao_motivo"] == "Automático (Neovero)" for o in proj)

@@ -337,7 +337,7 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
               <button type="button" className="btn btn-ghost btn-sm" onClick={onIrParaRegras}>Resolver</button>
             )}
           </>
-        ) : <span className="muted">—</span>}
+        ) : <span className="muted" title="Não é preciso recomendar executante nesta linha">{it.sem_recomendacao_motivo ?? '—'}</span>}
       </td>
     </tr>
   );

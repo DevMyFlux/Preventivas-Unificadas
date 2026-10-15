@@ -241,3 +241,18 @@ def test_nomes_novos_dos_status_futuro_e_passado():
     assert prev.ST_PREVISTA == "Aguardando geração" and prev.ST_SEM_OS == "Sem OS – verificar"
     assert prev.classificar_status(None, date(2026, 10, 20), HOJE)[0] == "Aguardando geração"
     assert prev.classificar_status(None, date(2026, 10, 10), HOJE) == ("Sem OS – verificar", False)
+
+
+def test_linhas_sem_recomendacao_explicam_o_motivo_em_vez_de_ficar_em_branco():
+    ctx = _ctx([ELETRICISTA])
+    reais = [
+        os_neovero(1, "2026-10-10", situacao=3, responsavel="ELETRICISTA A", responsavel_id=2, equip_id=1),     # concluída
+        os_neovero(2, "2026-10-10", situacao=4, responsavel="ELETRICISTA A", responsavel_id=2, equip_id=2),     # cancelada
+        os_neovero(3, "2026-10-14", situacao=1, responsavel="ELETRICISTA A", responsavel_id=2, equip_id=3),     # já atribuída
+        _os(4, "PM - MENSAL - SPLIT"),                                                                              # gestor: recebe recomendação
+    ]
+    por = {o["os_vinculada"]: o for o in _gerar(ctx, reais)}
+    assert por["1"]["sem_recomendacao_motivo"] == "Concluída"
+    assert por["2"]["sem_recomendacao_motivo"] == "Cancelada"
+    assert por["3"]["sem_recomendacao_motivo"] == "Já atribuída"
+    assert por["4"]["recomendado"] == "Eletricista A" and por["4"]["sem_recomendacao_motivo"] is None

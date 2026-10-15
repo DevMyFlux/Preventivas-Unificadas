@@ -84,6 +84,8 @@ export interface Preventiva {
   /** sem candidato OU escalada acima do limite diário — a tela mostra só "Requer intervenção"; o motivo aparece ao clicar */
   requer_intervencao?: boolean;
   motivo_intervencao?: string | null;
+  /** por que não há recomendação (concluída, já atribuída, equipe do Neovero…); a tela mostra isto no lugar de "—" */
+  sem_recomendacao_motivo?: string | null;
   regra: { id: string; status: 'aplicada' | 'pendente'; mensagem: string } | null;
   alertas: string[];
   /** cargo exigido pelo plano (regra de cargo da unidade), quando existe */
