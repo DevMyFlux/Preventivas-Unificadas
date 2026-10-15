@@ -14,6 +14,7 @@ interface Props {
   dataIni: string;
   dataFim: string;
   onCount?: (n: number) => void;
+  /** só administradores têm a tela de Regras; sem isto o aviso de nomes pendentes e o botão "Resolver" não aparecem */
   onIrParaRegras?: () => void;
 }
 
@@ -26,7 +27,7 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
   const [status, setStatus] = useState<string[]>([]);
   const [atrasada, setAtrasada] = useState(false);
   const [revisao, setRevisao] = useState(false);
-  const [semCandidato, setSemCandidato] = useState(false);
+  const [requerIntervencao, setRequerIntervencao] = useState(false);
   const [turno, setTurno] = useState('');
   const [paridade, setParidade] = useState('');
   const [dias, setDias] = useState<string[]>([]);
@@ -49,9 +50,9 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
 
   const query: PreventivasQuery = useMemo(() => ({
     dataIni, dataFim, incluirAtrasadas, dias, fIni: fIni || undefined, fFim: fFim || undefined, status, atrasada,
-    turno: turno || undefined, paridade: paridade || undefined, responsavel: respD, busca: buscaD, revisao, semCandidato,
+    turno: turno || undefined, paridade: paridade || undefined, responsavel: respD, busca: buscaD, revisao, requerIntervencao,
     page, pageSize,
-  }), [dataIni, dataFim, incluirAtrasadas, dias, fIni, fFim, status, atrasada, turno, paridade, respD, buscaD, revisao, semCandidato, page, pageSize]);
+  }), [dataIni, dataFim, incluirAtrasadas, dias, fIni, fFim, status, atrasada, turno, paridade, respD, buscaD, revisao, requerIntervencao, page, pageSize]);
 
   const { data, loading, error, reload } = useAsync(
     (signal) => {
@@ -71,14 +72,14 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
 
   const tp = data?.totais_periodo;
   const tf = data?.totais;
-  const filtrando = !!(status.length || atrasada || revisao || semCandidato || turno || paridade || dias.length || fIni || fFim || buscaD || respD);
+  const filtrando = !!(status.length || atrasada || revisao || requerIntervencao || turno || paridade || dias.length || fIni || fFim || buscaD || respD);
 
   // Filtros em vigor, sempre visíveis e removíveis um a um (nada fica "escondido" aplicado)
   const ativos: { chave: string; texto: string; remover: () => void }[] = [
     ...status.map((s) => ({ chave: `st-${s}`, texto: `Status: ${s}`, remover: () => alternarStatus(s) })),
     ...(atrasada ? [{ chave: 'atrasada', texto: 'Em atraso', remover: () => setAtrasada(false) }] : []),
     ...(revisao ? [{ chave: 'revisao', texto: 'Para revisar', remover: () => setRevisao(false) }] : []),
-    ...(semCandidato ? [{ chave: 'sem', texto: 'Sem candidato', remover: () => setSemCandidato(false) }] : []),
+    ...(requerIntervencao ? [{ chave: 'sem', texto: 'Requer intervenção', remover: () => setRequerIntervencao(false) }] : []),
     ...(turno ? [{ chave: 'turno', texto: `Turno: ${turno === '—' ? 'não informado' : turno}`, remover: () => setTurno('') }] : []),
     ...(paridade ? [{ chave: 'par', texto: `Dia ${paridade}`, remover: () => setParidade('') }] : []),
     ...(dias.length ? [{ chave: 'dias', texto: `${dias.length} dia(s) escolhido(s)`, remover: () => setDias([]) }] : []),
@@ -90,7 +91,7 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
   const filtrosExtrasAtivos = !!(paridade || fIni || fFim);
 
   const limpar = () => {
-    setStatus([]); setAtrasada(false); setRevisao(false); setSemCandidato(false); setTurno(''); setParidade('');
+    setStatus([]); setAtrasada(false); setRevisao(false); setRequerIntervencao(false); setTurno(''); setParidade('');
     setDias([]); setFIni(''); setFFim(''); setBusca(''); setResponsavel('');
   };
 
@@ -99,7 +100,7 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
     if (k === 'status' && st) setStatus([st]);
     if (k === 'atrasada') setAtrasada(true);
     if (k === 'revisao') setRevisao(true);
-    if (k === 'sem') setSemCandidato(true);
+    if (k === 'sem') setRequerIntervencao(true);
   };
 
   const alternarStatus = (s: string) =>
@@ -121,9 +122,9 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
 
   const kpiAtivo = (k: string) => {
     if (!filtrando) return k === 'todos';
-    if (k === 'atrasada') return atrasada && !status.length && !revisao && !semCandidato;
-    if (k === 'revisao') return revisao && !status.length && !atrasada && !semCandidato;
-    if (k === 'sem') return semCandidato && !status.length && !atrasada && !revisao;
+    if (k === 'atrasada') return atrasada && !status.length && !revisao && !requerIntervencao;
+    if (k === 'revisao') return revisao && !status.length && !atrasada && !requerIntervencao;
+    if (k === 'sem') return requerIntervencao && !status.length && !atrasada && !revisao;
     return status.length === 1 && status[0] === k;
   };
 
@@ -142,7 +143,7 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
         }
       />
 
-      {data && data.pendencias_regras.length > 0 && (
+      {data && onIrParaRegras && data.pendencias_regras.length > 0 && (
         <Alert
           tone="warning"
           action={onIrParaRegras && <Button size="sm" onClick={onIrParaRegras}>Resolver regras</Button>}
@@ -165,7 +166,7 @@ export default function PreventivasPanel({ client, dataIni, dataFim, onCount, on
           loading={loading && !tp} onClick={() => focarKpi('atrasada')} pressed={kpiAtivo('atrasada')} />
         <KpiCard label="Para revisar" value={tp?.revisao ?? null} tone="warning" hint="Responsável não é um executante válido"
           loading={loading && !tp} onClick={() => focarKpi('revisao')} pressed={kpiAtivo('revisao')} />
-        <KpiCard label="Sem candidato" value={tp?.sem_candidato ?? null} tone="purple" hint="Requer intervenção"
+        <KpiCard label="Requer intervenção" value={tp?.requer_intervencao ?? tp?.sem_candidato ?? null} tone="purple" hint="Sem candidato ou acima do limite diário"
           loading={loading && !tp} onClick={() => focarKpi('sem')} pressed={kpiAtivo('sem')} />
       </section>
 
@@ -327,19 +328,35 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
             <div className="strong">{nomes.join(' + ')}</div>
             <div className="cell-sub">{it.cargo}{it.escala ? ` · ${it.escala}` : ''}</div>
             {it.alertas.map((a) => <div key={a} className="cell-sub" style={{ color: 'var(--warning-text)' }}>{a}</div>)}
+            {it.requer_intervencao && <Intervencao motivo={it.motivo_intervencao ?? null} />}
           </>
-        ) : it.sem_candidato ? (
+        ) : it.sem_candidato || it.requer_intervencao ? (
           <>
-            <Chip tone="purple">Requer intervenção</Chip>
-            <div className="cell-sub" style={{ maxWidth: 320, whiteSpace: 'normal' }}>
-              {it.motivo_sem_candidato}
-              {it.regra?.status === 'pendente' && onIrParaRegras && (
-                <> <button type="button" className="btn btn-ghost btn-sm" onClick={onIrParaRegras}>Resolver</button></>
-              )}
-            </div>
+            <Intervencao motivo={it.motivo_intervencao ?? it.motivo_sem_candidato} />
+            {it.regra?.status === 'pendente' && onIrParaRegras && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={onIrParaRegras}>Resolver</button>
+            )}
           </>
         ) : <span className="muted">—</span>}
       </td>
     </tr>
+  );
+}
+
+/** "Requer intervenção": só o aviso; o motivo aparece quando o usuário clica (a OS continua escalada). */
+function Intervencao({ motivo }: { motivo: string | null }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <div>
+      <button type="button" className="chip-btn" aria-expanded={aberto} onClick={() => setAberto((v) => !v)}
+        title="Clique para ver o motivo">
+        <Chip tone="purple">Requer intervenção</Chip>
+      </button>
+      {aberto && (
+        <div className="cell-sub" role="note" style={{ maxWidth: 340, whiteSpace: 'normal' }}>
+          {motivo ?? 'Motivo não informado.'}
+        </div>
+      )}
+    </div>
   );
 }

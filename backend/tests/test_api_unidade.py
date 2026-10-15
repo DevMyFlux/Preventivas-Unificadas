@@ -70,6 +70,14 @@ def neovero(monkeypatch, tmp_path):
 
 
 @pytest.fixture()
+def dev(app, criar_usuarios):
+    """Administrador: Regras e Atribuição são exclusivas dele."""
+    c = app.test_client()
+    fazer_login(c, "dev", criar_usuarios)
+    return c
+
+
+@pytest.fixture()
 def ana(app, criar_usuarios):
     c = app.test_client()
     fazer_login(c, "ana.hmb", criar_usuarios)
@@ -244,8 +252,8 @@ def test_revisao_lista_os_abertas_em_nome_de_gestao_desligado_ou_generico(ana, n
 
 # ── regras nominais (5.4 / 5.5) pela API ──────────────────────────────────────
 
-def test_endpoint_de_regras_mostra_pendencias_e_nao_adivinha(ana, neovero):
-    d = ana.get(f"{P}/regras").get_json()
+def test_endpoint_de_regras_mostra_pendencias_e_nao_adivinha(dev, neovero):
+    d = dev.get(f"{P}/regras").get_json()
     regras = {r["id"]: r for r in d["regras"]}
     ronda = {(l["turno"], l["paridade"]): l for l in regras["ronda_diaria"]["linhas"]}
     assert ronda[("Diurno", "Ímpar")]["status"] == "ok"            # Iranildo inequívoco
@@ -255,25 +263,25 @@ def test_endpoint_de_regras_mostra_pendencias_e_nao_adivinha(ana, neovero):
     assert ronda[("Noturno", "Par")]["responsaveis"][0]["status"] == "nao_encontrado"
 
 
-def test_confirmar_nome_da_regra_valida_alias_e_colaborador_e_vale_na_proxima_geracao(ana, neovero):
+def test_confirmar_nome_da_regra_valida_alias_e_colaborador_e_vale_na_proxima_geracao(dev, neovero):
     neovero.os_periodo = [os_neovero(31, "2026-10-14", situacao=1, responsavel="ELÉTRICA - DIURNO", responsavel_id=67,
                                      plano="PM - DIÁRIO - RONDA – NOBREAK", oficina="ELÉTRICA/QGBT", tipo="RONDA",
                                      tipo_id=8, periodicidade=1, unidade_tempo="D")]
-    antes = _get(ana, data_ini="2026-10-14", data_fim="2026-10-14").get_json()
+    antes = _get(dev, data_ini="2026-10-14", data_fim="2026-10-14").get_json()
     oc = antes["itens"][0]
     assert oc["recomendado"] is None and oc["regra"]["status"] == "pendente"
     assert antes["pendencias_regras"]
 
-    assert ana.put(f"{P}/regras/resolucoes", json={"alias": "Fulano", "funcionario": "Michael de Campos Eguez"}).status_code == 400
-    assert ana.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "Caio Cezar Santos Pereira"}).status_code == 400
+    assert dev.put(f"{P}/regras/resolucoes", json={"alias": "Fulano", "funcionario": "Michael de Campos Eguez"}).status_code == 400
+    assert dev.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "Caio Cezar Santos Pereira"}).status_code == 400
     # gestão não executa OS / nome que não combina com o apelido: rejeitados; pessoa certa do quadro: aceita
-    assert ana.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "William de Souza Lobo"}).status_code == 400
-    assert ana.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "Diego Reimberg"}).status_code == 400
-    assert ana.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "Michael de Campos Eguez"}).status_code == 200
-    depois = _get(ana, data_ini="2026-10-14", data_fim="2026-10-14").get_json()["itens"][0]
+    assert dev.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "William de Souza Lobo"}).status_code == 400
+    assert dev.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "Diego Reimberg"}).status_code == 400
+    assert dev.put(f"{P}/regras/resolucoes", json={"alias": "Michael", "funcionario": "Michael de Campos Eguez"}).status_code == 200
+    depois = _get(dev, data_ini="2026-10-14", data_fim="2026-10-14").get_json()["itens"][0]
     assert depois["recomendado"] == "Michael de Campos Eguez" and depois["regra"]["status"] == "aplicada"
-    assert ana.delete(f"{P}/regras/resolucoes", query_string={"alias": "Michael"}).get_json()["removidas"] == 1
-    again = _get(ana, data_ini="2026-10-14", data_fim="2026-10-14").get_json()["itens"][0]
+    assert dev.delete(f"{P}/regras/resolucoes", query_string={"alias": "Michael"}).get_json()["removidas"] == 1
+    again = _get(dev, data_ini="2026-10-14", data_fim="2026-10-14").get_json()["itens"][0]
     assert again["recomendado"] is None
 
 

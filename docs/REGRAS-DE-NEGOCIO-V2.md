@@ -48,14 +48,17 @@ sessão). O teste antigo que *exigia* recomendar a gestora quando era a única o
 ## 5.3 Limites diários
 
 - **Elétrica 14 / Climatização 10** por colaborador por dia (`core/regras/limites.py`), aplicados **dentro do motor**
-  como gate duro (não só na tela).
+  (não só na tela). **O limite é um AVISO, não um bloqueio** (ver “Esgotado”).
 - **Especialidade** = do **colaborador** (pelo cargo): eletricista/aux. elétrica → Elétrica; técnico/aux. de
   climatização/refrigeração → Climatização; demais cargos não têm teto.
 - **O que conta:** OS Aberta, Em andamento e Fechada do dia (não Cancelada) + ocorrências projetadas já atribuídas.
   Cada item tem chave única (`OS:<n>` / `PREV:<plano>:<item>:<dia>`), então **nunca conta duas vezes**. O dia é o da
   execução, não o do processamento.
-- **Esgotado:** o motor procura outro profissional **compatível**; se não houver, devolve *sem candidato* com o motivo
-  “Limite diário … requer intervenção” — não empurra para cargo incompatível nem ultrapassa em silêncio.
+- **Esgotado:** o motor procura outro profissional **compatível com vaga**. Se **todos** os compatíveis já estão no limite, a OS
+  **continua sendo escalada** (para o menos carregado do dia, ou para o responsável da regra nominal / do cargo exigido) e fica
+  marcada `requer_intervencao`: a tela mostra só o aviso **“Requer intervenção”** e o motivo aparece quando o usuário **clica**.
+  Nunca vai para cargo incompatível. “Sem candidato” passa a significar apenas **ninguém elegível** (desligados, bloqueados,
+  fora de escala, regra pendente…). Indicador e filtro “Requer intervenção” = sem candidato + acima do limite.
 - **Decisão pendente (impacto grande):** com a regra 5.4 há **~27 rondas diurnas e ~19 noturnas por dia** (HMB) e um
   único responsável por turno/paridade; o teto de 14 deixa ~13 rondas/dia por pessoa como “requer intervenção”. Se a
   supervisão entender que rondas **não** consomem o limite, incluir `8` (tipo RONDA no Neovero) em
@@ -123,13 +126,38 @@ Cargo **alternativo** só existe quando declarado na tabela e só entra se nenhu
 | Plano (padrão no nome) | Cargo principal | Alternativa explícita |
 |---|---|---|
 | Rondas diárias de chiller / ar comprimido | Técnico de Climatização | — |
-| Limpeza de fancoils BL1 | Técnico de Climatização | — |
+| Limpeza de fancoils e fancoletes | Técnico de Climatização | — |
 | Inspeção do sistema de combate a incêndio | Eletricista | — |
-| Teste de partida dos grupos geradores | Eletricista | — |
+| Grupos geradores (teste de partida e demais planos) | **Exclusivamente** Eletricista | — |
 | Painéis termossolares (limpeza/inspeção) | Eletricista | — |
 | Coleta de medidor noturna (N1) | Aux. Eletricista | — |
 | Réguas de gases medicinais; exaustores/difusores | Aux. Manutenção/Climatização | Aux. Eletricista |
-| Ronda de iluminação/tomadas; ronda de motobombas | Eletricista | Aux. Eletricista |
+| Ronda de iluminação/tomadas | Eletricista | Aux. Eletricista |
+| Motobombas | Eletricista (nomes por turno/dia na tabela abaixo) | — |
+
+### Regras nominais da HETRIN (`units/grand_massif/regras.py`) — correção de out/2026
+
+| Plano | Turno × dia | Responsável |
+|---|---|---|
+| Fancoletes | ímpar | Wagner Alves Cardozo (técnico diurno) |
+| Fancoletes | par | Eduardo Oliveira da Cunha (técnico noturno) |
+| Motobombas | diurno ímpar | Luís Alberto |
+| Motobombas | diurno par | Salem Abreu |
+| Motobombas | noturno ímpar | Lúcio Jorge **e** Valdene Ferreira |
+| Motobombas | noturno par | Maikon Douglas |
+
+Combinação não listada → a regra não se aplica e vale o gate de cargo. Os nomes são validados contra o quadro ativo (apelido
+ambíguo/ausente deixa a linha pendente, só administradores resolvem). Wellington (bloqueado por aptidão) não recebe
+recomendação enquanto o bloqueio existir.
+
+### Novos colaboradores (HETRIN)
+Eduardo Oliveira da Cunha (Técnico de Climatização, admitido em **02/10/2026**) e Alceu Rodrigues Junior (Eletricista, admitido em
+**13/10/2026**) já constam na escala de outubro; a data de admissão foi registrada (semente `colaboradores_overlay.json` +
+migração 007, que só preenche onde ainda não há data) — antes dela nenhum dos dois é elegível.
+
+### Regras e Atribuição são exclusivas do administrador
+A tela e **todas** as rotas `/regras*` e `/atribuicoes*` (das duas unidades) respondem 403 a usuário comum; o menu e o aviso de
+“nomes pendentes” também ficam ocultos para ele.
 
 OS **já atribuídas** a cargo fora da regra são apenas sinalizadas (campo `cargo_fora_da_regra`, aba “Cargo fora da regra” em
 Revisão) — nada é reatribuído. A regra nominal (`nomes_obrigatorios`) tem precedência sobre o cargo.

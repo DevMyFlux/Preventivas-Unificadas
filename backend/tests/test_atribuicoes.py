@@ -11,7 +11,15 @@ from core.db import sessao
 from core.models import AtribuicaoProposta, AuditLog
 from tests.conftest import fazer_login
 from tests.fakes import os_neovero
-from tests.test_api_unidade import P, NeoveroFalso, ana, neovero  # noqa: F401  (fixtures reutilizadas)
+from tests.test_api_unidade import P, NeoveroFalso, neovero  # noqa: F401  (fixtures reutilizadas)
+
+
+@pytest.fixture()
+def ana(app, criar_usuarios):
+    """Atribuição é exclusiva do administrador: o cliente destes testes é o Dev (acessa as duas unidades)."""
+    c = app.test_client()
+    fazer_login(c, "dev", criar_usuarios)
+    return c
 
 
 @pytest.fixture()
@@ -64,7 +72,7 @@ def test_proposta_e_idempotente_nao_duplica(ana, cenario):
         assert len(s.scalars(select(AtribuicaoProposta)).all()) == 1
         p = s.scalars(select(AtribuicaoProposta)).one()
         assert p.status == "proposta" and p.responsavel_original_id == 31 and p.neovero_funcionario_id == 5
-        assert p.unit == "HMB" and p.criado_por == "ana.hmb"
+        assert p.unit == "HMB" and p.criado_por == "dev"
 
 
 def test_so_proposta_aprovada_e_processada(ana, cenario):
@@ -187,11 +195,14 @@ def test_rejeitada_nao_e_processada(ana, cenario):
     assert r["status"] == "rejeitada"
 
 
-def test_propostas_de_uma_unidade_nao_aparecem_nem_sao_decididas_por_outra(app, ana, cenario, criar_usuarios):
+def test_propostas_de_uma_unidade_nao_sao_decididas_pelo_prefixo_de_outra(app, ana, cenario, criar_usuarios):
     pid = _propor(ana).get_json()["resultado"][0]["id"]
+    # o Dev acessa as duas unidades, mas a proposta da HMB não é decidida pelo prefixo da HETRIN
+    assert ana.post("/api/grandmassif/atribuicoes/decisao", json={"ids": [pid], "acao": "aprovar"}).get_json()["atualizadas"] == 0
+    # usuários comuns (de qualquer unidade) não têm acesso nenhum à atribuição
     beto = app.test_client()
     fazer_login(beto, "beto.hetrin", criar_usuarios)
-    assert beto.post("/api/grandmassif/atribuicoes/decisao", json={"ids": [pid], "acao": "aprovar"}).get_json()["atualizadas"] == 0
+    assert beto.post("/api/grandmassif/atribuicoes/decisao", json={"ids": [pid], "acao": "aprovar"}).status_code == 403
     assert beto.post(f"{P}/atribuicoes/decisao", json={"ids": [pid], "acao": "aprovar"}).status_code == 403
 
 

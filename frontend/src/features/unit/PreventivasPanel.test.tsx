@@ -14,13 +14,14 @@ function item(extra: Partial<Preventiva>): Preventiva {
     turno: '—', status: 'Pendente', atrasada: false, plano: 'PM - MENSAL - SPLIT', tipo: 'PREVENTIVA', oficina: 'CLIMATIZAÇÃO',
     equipamento: 'SPLIT 1', setor: 'BLOCO A', os_vinculada: '1001', os_id: 1, os_situacao: 'Aberta', responsavel_atual: 'CLIMA UM',
     responsavel_status: 'Atribuída', responsavel_cadastro: 'Clima Um', recomendado: null, recomendados: [], cargo: '', escala: '',
-    score: -999, revisao: false, sem_candidato: false, motivo_sem_candidato: null, regra: null, alertas: [], ...extra,
+    score: -999, revisao: false, sem_candidato: false, motivo_sem_candidato: null, requer_intervencao: false, motivo_intervencao: null,
+    regra: null, alertas: [], ...extra,
   };
 }
 
 const totais = (extra: Partial<TotaisPreventivas> = {}): TotaisPreventivas => ({
   total: 6, por_status: { Pendente: 2, 'Em andamento': 1, Concluída: 2, 'Aguardando geração': 1, 'Sem OS – verificar': 0, Parada: 0, Cancelada: 0 },
-  por_dia: { '2026-10-13': 2, '2026-10-14': 4 }, atrasadas: 2, revisao: 1, sem_candidato: 1, com_recomendacao: 1, ...extra,
+  por_dia: { '2026-10-13': 2, '2026-10-14': 4 }, atrasadas: 2, revisao: 1, sem_candidato: 1, requer_intervencao: 1, com_recomendacao: 1, ...extra,
 });
 
 function resposta(itens: Preventiva[], extra: Partial<PreventivasResponse> = {}): PreventivasResponse {
@@ -51,8 +52,9 @@ beforeEach(() => {
     item({ os_vinculada: '1002', status: 'Concluída', responsavel_atual: 'IRANILDO SILVA DOS SANTOS' }),
     item({ os_vinculada: '1003', status: 'Pendente', responsavel_atual: 'WILLIAN DE SOUZA LOBO', responsavel_status: 'Gestão', revisao: true,
       recomendado: 'Iranildo Silva dos Santos', recomendados: ['Iranildo Silva dos Santos'], cargo: 'Eletricista', escala: 'Diurno | Ímpar' }),
-    item({ os_vinculada: '1004', status: 'Pendente', sem_candidato: true, responsavel_atual: 'ELÉTRICA - DIURNO', responsavel_status: 'Genérico',
-      motivo_sem_candidato: 'Limite diário de ordens atingido por todos os profissionais compatíveis — requer intervenção.' }),
+    item({ os_vinculada: '1004', status: 'Pendente', sem_candidato: true, requer_intervencao: true, responsavel_atual: 'ELÉTRICA - DIURNO', responsavel_status: 'Genérico',
+      motivo_sem_candidato: 'Limite diário de ordens atingido por todos os profissionais compatíveis — requer intervenção.',
+      motivo_intervencao: 'Limite diário de ordens atingido por todos os profissionais compatíveis — requer intervenção.' }),
   ]));
 });
 
@@ -69,7 +71,10 @@ describe('PreventivasPanel', () => {
     expect(within(doGestor).getByText('Gestão')).toBeInTheDocument();
     expect(within(doGestor).getByText('Iranildo Silva dos Santos')).toBeInTheDocument();
     const semCand = screen.getByText('1004').closest('tr')!;
+    // só o aviso; o motivo aparece quando o usuário clica
     expect(within(semCand).getByText('Requer intervenção')).toBeInTheDocument();
+    expect(within(semCand).queryByText(/Limite diário de ordens atingido/)).toBeNull();
+    await userEvent.click(within(semCand).getByRole('button', { name: /Requer intervenção/ }));
     expect(within(semCand).getByText(/Limite diário de ordens atingido/)).toBeInTheDocument();
   });
 
@@ -228,5 +233,40 @@ describe('PreventivasPanel — filtros ativos e usabilidade', () => {
     const linha = (await screen.findByText('2001')).closest('tr')!;
     expect(within(linha).getByText(/o plano pede Eletricista/)).toBeInTheDocument();
     expect(within(screen.getByText('2002').closest('tr')!).getByText('Parada')).toBeInTheDocument();
+  });
+});
+
+describe('PreventivasPanel — limite diário é aviso, não bloqueio', () => {
+  it('OS acima do limite continua escalada: mostra o recomendado + "Requer intervenção" e o motivo só ao clicar', async () => {
+    fetchPreventivas.mockResolvedValue(resposta([
+      item({ os_vinculada: '3001', status: 'Pendente', responsavel_atual: 'WILLIAN DE SOUZA LOBO', responsavel_status: 'Gestão', revisao: true,
+        recomendado: 'Iranildo Silva dos Santos', recomendados: ['Iranildo Silva dos Santos'], cargo: 'Eletricista', escala: 'Diurno | Fixo',
+        requer_intervencao: true, motivo_intervencao: 'Limite diário atingido: a OS foi escalada para Iranildo, que passa a ter 15 ordens no dia (limite 14).' }),
+    ]));
+    montar();
+    const linha = (await screen.findByText('3001')).closest('tr')!;
+    expect(within(linha).getByText('Iranildo Silva dos Santos')).toBeInTheDocument();          // continua escalada
+    expect(within(linha).getByText('Requer intervenção')).toBeInTheDocument();
+    expect(within(linha).queryByText(/passa a ter 15 ordens/)).toBeNull();
+    await userEvent.click(within(linha).getByRole('button', { name: /Requer intervenção/ }));
+    expect(within(linha).getByText(/passa a ter 15 ordens no dia \(limite 14\)/)).toBeInTheDocument();
+  });
+
+  it('o indicador "Requer intervenção" filtra pela nova regra e o chip do filtro aparece', async () => {
+    montar();
+    await screen.findByText('1001');
+    await userEvent.click(within(screen.getByLabelText('Resumo do período')).getByRole('button', { name: /Requer intervenção/ }));
+    await waitFor(() => expect(ultimaConsulta().requerIntervencao).toBe(true));
+    expect(within(await screen.findByRole('list', { name: 'Filtros ativos' })).getByText('Requer intervenção')).toBeInTheDocument();
+  });
+
+  it('sem a tela de Regras (usuário comum) não mostra o aviso de nomes pendentes nem o botão Resolver', async () => {
+    fetchPreventivas.mockResolvedValue(resposta([item({ os_vinculada: '4001' })], {
+      pendencias_regras: [{ regra: 'Rondas', turno: 'Diurno', paridade: 'Par', alias: 'Michael', status: 'ambiguo', motivo: 'dois', candidatos: ['A', 'B'] }] }));
+    montar();                                   // sem onIrParaRegras
+    await screen.findByText('4001');
+    expect(screen.queryByText(/precisam de confirmação/)).toBeNull();
+    montar({ onIrParaRegras: () => {} });       // administrador
+    expect((await screen.findAllByText(/precisam de confirmação/)).length).toBeGreaterThan(0);
   });
 });

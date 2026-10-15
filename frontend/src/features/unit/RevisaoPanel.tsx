@@ -11,7 +11,7 @@ import { HINT_RESPONSAVEL, toneDoResponsavel } from '../../shared/utils/status';
 
 const ORDEM = ['Gestão', 'Desligado', 'Genérico', 'Bloqueado', 'Sem responsável'];
 
-export default function RevisaoPanel({ client, onCount }: { client: UnitApiClient; onCount?: (n: number) => void }) {
+export default function RevisaoPanel({ client, onCount, podeAtribuir = false }: { client: UnitApiClient; onCount?: (n: number) => void; podeAtribuir?: boolean }) {
   const { data, loading, error, reload } = useAsync(() => client.fetchRevisao(), [client]);
   const [filtro, setFiltro] = useState('');
   const [aba, setAba] = useState<'ordens' | 'planos' | 'cargo' | 'transferencias'>('ordens');
@@ -33,7 +33,7 @@ export default function RevisaoPanel({ client, onCount }: { client: UnitApiClien
       <Alert tone="info">
         O Neovero cria cada OS com o <b>responsável padrão do plano</b> — hoje o gestor da unidade. Aqui aparecem as ordens em nome de
         gestão, de nomes genéricos (ex.: “ELÉTRICA - DIURNO”), de colaboradores desligados, bloqueados ou sem responsável.
-        Para preencher o executante, use <b>Atribuição</b> (conferência e aprovação).
+        {podeAtribuir ? <>Para preencher o executante, use <b>Atribuição</b> (conferência e aprovação).</> : <>A troca do responsável é feita pela administração.</>}
       </Alert>
 
       {error && <Alert tone="danger" action={<Button size="sm" onClick={reload}>Tentar de novo</Button>}>{error}</Alert>}
@@ -195,8 +195,8 @@ function Transferencias({ itens, carregando, erro, nota, onSalvar, onRecarregar 
   return (
     <>
       <Alert tone="info">
-        Transferências de responsável <b>observadas</b> pelo sistema entre leituras do Neovero (o Neovero só informa o responsável atual).
-        {nota ? ` ${nota}` : ''} O motivo é informado por uma pessoa.
+        Transferências de responsável <b>observadas</b> pelo sistema (o Neovero só informa o responsável atual).
+        {nota ? ` ${nota}` : ' O motivo é anotado por uma pessoa.'}
       </Alert>
       {itens.length === 0 ? <EmptyState icon="activity" title="Nenhuma transferência observada ainda" /> : (
         <div className="table-wrap">

@@ -136,6 +136,26 @@ describe('controle de acesso na interface (a segurança real é do backend)', ()
     expect(screen.queryByText('Novo usuário')).toBeNull();
   });
 
+  it('usuário comum NÃO vê Regras nem Atribuição (só administradores), mas vê Planos', async () => {
+    mocks.me.mockResolvedValue(sessao(usuario({})));
+    render(<App />);
+    const lateral = await screen.findByLabelText('Navegação principal');
+    expect(within(lateral).queryByRole('button', { name: /^Regras/ })).toBeNull();
+    expect(within(lateral).queryByRole('button', { name: /^Atribuição/ })).toBeNull();
+    expect(within(lateral).getByRole('button', { name: /^Planos/ })).toBeInTheDocument();
+    expect(within(lateral).queryByText('Configuração')).toBeNull();
+  });
+
+  it('link direto para #/u/HMB/regras ou atribuições volta para Preventivas e não pede os dados', async () => {
+    window.location.hash = '#/u/HMB/regras';
+    mocks.me.mockResolvedValue(sessao(usuario({})));
+    render(<App />);
+    await screen.findByLabelText('Navegação principal');
+    await waitFor(() => expect(window.location.hash).toBe('#/u/HMB/preventivas'));
+    expect(mocks.fetchRegras).not.toHaveBeenCalled();
+    expect(mocks.fetchAtribuicoes).not.toHaveBeenCalled();
+  });
+
   it('Dev vê as duas unidades e a administração', async () => {
     mocks.me.mockResolvedValue(sessao(usuario({ role: 'dev', is_dev: true, unit: null, unit_name: null, units: [unidadeHETRIN, unidadeHMB] })));
     render(<App />);
@@ -145,6 +165,8 @@ describe('controle de acesso na interface (a segurança real é do backend)', ()
     expect(within(lateral).getByText('Administração')).toBeInTheDocument();
     expect(within(lateral).getByRole('button', { name: /Utilização/ })).toBeInTheDocument();
     expect(within(lateral).getByRole('button', { name: /Mensagens/ })).toBeInTheDocument();
+    expect(within(lateral).getByRole('button', { name: /^Regras/ })).toBeInTheDocument();
+    expect(within(lateral).getByRole('button', { name: /^Atribuição/ })).toBeInTheDocument();
   });
 });
 

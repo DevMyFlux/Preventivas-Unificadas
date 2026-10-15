@@ -426,6 +426,14 @@ def calcular_score(
     return score
 
 
+def _ordenar(pool: dict, acima_limite: bool) -> list:
+    """Melhor primeiro. Se todos já estão acima do limite, o excedente vai para quem tem MENOS ordens no dia
+    (espalha o excesso em vez de empilhar numa pessoa); desempate pelo score e pela menor carga."""
+    if acima_limite:
+        return sorted(pool, key=lambda n: (-(pool[n].get("ocupacao_dia") or 0), pool[n]["score"], -pool[n]["carga"]), reverse=True)
+    return sorted(pool, key=lambda n: (pool[n]["score"], -pool[n]["carga"]), reverse=True)
+
+
 def indicar_responsavel(
     colaboradores,
     hist_tipo: dict,
@@ -509,11 +517,12 @@ def indicar_responsavel(
 
     `ocupacao` (opcional): `core.regras.limites.OcupacaoDiaria` — controle de quantas
     ordens cada colaborador já tem NAQUELE dia (`data_ref`). Quando informado, quem já
-    atingiu o limite diário da sua especialidade (Elétrica 14, Climatização 10) é
-    EXCLUÍDO de forma dura: nenhum gate "soft" o reabilita e, se o limite esvaziar o
-    conjunto de candidatos compatíveis, a função devolve `None` (sem candidato) e
-    `diagnostico["motivo"] = "limite_diario"` em vez de empurrar a ordem para alguém
-    tecnicamente incompatível ou ultrapassar o teto em silêncio.
+    atingiu o limite diário da sua especialidade (Elétrica 14, Climatização 10) deixa de
+    ser preferido: havendo alguém compatível COM vaga, só concorre quem tem vaga. Se TODOS os
+    compatíveis estão no limite, a OS continua sendo escalada (nunca fica sem indicação por
+    isso) para o menos carregado do dia, com `principal["acima_limite"] = True` e
+    `diagnostico["aviso"] = "limite_diario"` — a tela mostra "Requer intervenção" e o motivo
+    ao clicar. Nunca recua para alguém tecnicamente incompatível.
 
     `nomes_obrigatorios` (opcional): conjunto de nomes que a regra de negócio EXIGE para
     esta ocorrência (ronda diária, oficina de ar comprimido…). Diferente de
@@ -616,17 +625,20 @@ def indicar_responsavel(
             diagnostico["motivo"] = "regra_nominal_indisponivel"
             return None, None, scores
         com_vaga_regra = {n: s for n, s in da_regra.items() if s["com_vaga"]}
-        if not com_vaga_regra:
-            diagnostico["motivo"] = "regra_nominal_limite_diario"
-            return None, None, scores
-        disponiveis = com_vaga_regra
-        ordenados = sorted(disponiveis, key=lambda n: (disponiveis[n]["score"], -disponiveis[n]["carga"]), reverse=True)
-        principal = {"nome": ordenados[0], **disponiveis[ordenados[0]]}
-        apoio = {"nome": ordenados[1], **disponiveis[ordenados[1]]} if len(ordenados) > 1 else None
+        # Limite diário é AVISO, não bloqueio: sem vaga para ninguém da regra, a OS continua sendo escalada
+        # para o(s) responsável(is) da regra, marcada como acima do limite ("Requer intervenção").
+        acima = not com_vaga_regra
+        if acima:
+            diagnostico["aviso"] = "regra_nominal_limite_diario"
+        disponiveis = da_regra if acima else com_vaga_regra
+        ordenados = _ordenar(disponiveis, acima)
+        principal = {"nome": ordenados[0], **disponiveis[ordenados[0]], "acima_limite": acima}
+        apoio = {"nome": ordenados[1], **disponiveis[ordenados[1]], "acima_limite": acima} if len(ordenados) > 1 else None
         return principal, apoio, scores
 
     # Regra de CARGO por plano (estrita): principais primeiro; alternativos só se nenhum principal
     # puder assumir (disponível e com vaga no dia). Nunca recua para um cargo não permitido.
+    acima_limite = False
     if familias_cargo is not None:
         principais, alternativas = familias_cargo
 
@@ -641,8 +653,9 @@ def indicar_responsavel(
         elif vaga_a:
             disponiveis = vaga_a
         elif pool_p or pool_a:
-            diagnostico["motivo"] = "limite_diario"
-            return None, None, scores
+            disponiveis = pool_p or pool_a     # sem vaga: segue escalando (do cargo certo), com aviso
+            acima_limite = True
+            diagnostico["aviso"] = "limite_diario"
         else:
             diagnostico["motivo"] = "cargo_sem_habilitado"
             return None, None, scores
@@ -662,12 +675,14 @@ def indicar_responsavel(
     # Limite diário por especialidade — gate DURO. Se existiam candidatos compatíveis e o
     # limite os esgotou, NÃO recua para incompatíveis nem ultrapassa o teto: sinaliza
     # que a distribuição precisa de intervenção humana.
-    if ocupacao is not None:
+    if ocupacao is not None and not acima_limite:
         com_vaga = {n: s for n, s in disponiveis.items() if s["com_vaga"]}
         if not com_vaga:
-            diagnostico["motivo"] = "limite_diario"
-            return None, None, scores
-        disponiveis = com_vaga
+            # todos os compatíveis já estão no limite: continua escalando (o menos carregado do dia), com aviso
+            acima_limite = True
+            diagnostico["aviso"] = "limite_diario"
+        else:
+            disponiveis = com_vaga
 
     # Mesmo raciocínio, agora pro turno: sem isso, a penalidade de carga acumulada
     # (sem teto) podia fazer alguém do turno errado "ganhar" de alguém do turno certo
@@ -720,13 +735,9 @@ def indicar_responsavel(
         if nomeados:
             disponiveis = nomeados
 
-    ordenados = sorted(
-        disponiveis,
-        key=lambda n: (disponiveis[n]["score"], -disponiveis[n]["carga"]),
-        reverse=True,
-    )
-    principal = {"nome": ordenados[0], **disponiveis[ordenados[0]]}
-    apoio = {"nome": ordenados[1], **disponiveis[ordenados[1]]} if len(ordenados) > 1 else None
+    ordenados = _ordenar(disponiveis, acima_limite)
+    principal = {"nome": ordenados[0], **disponiveis[ordenados[0]], "acima_limite": acima_limite}
+    apoio = {"nome": ordenados[1], **disponiveis[ordenados[1]], "acima_limite": acima_limite} if len(ordenados) > 1 else None
     return principal, apoio, scores
 
 

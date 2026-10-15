@@ -40,7 +40,7 @@ def test_especialidade_pelo_cargo():
     assert limite_do_cargo("Encanador") is None
 
 
-def test_eletricista_chega_a_14_e_nao_passa():
+def test_eletricista_chega_a_14_e_a_15a_continua_escalada_com_aviso():
     colab = _elet("Eletricista Único")
     oc = OcupacaoDiaria()
     for i in range(14):
@@ -50,11 +50,13 @@ def test_eletricista_chega_a_14_e_nao_passa():
     assert oc.total("Eletricista Único", DIA) == 14
     diag = {}
     principal, _, _ = _recomendar(colab, oc, diag=diag)
-    assert principal is None, "a 15ª ordem não pode ser atribuída em silêncio"
-    assert diag["motivo"] == "limite_diario"
+    # limite é AVISO: a 15ª continua sendo escalada, só que marcada para intervenção
+    assert principal is not None and principal["nome"] == "Eletricista Único" and principal["acima_limite"] is True
+    assert diag["aviso"] == "limite_diario" and "motivo" not in diag
+    assert all(not _recomendar(colab, OcupacaoDiaria())[0]["acima_limite"] for _ in range(1))     # com vaga: sem aviso
 
 
-def test_climatizacao_chega_a_10_e_nao_passa():
+def test_climatizacao_chega_a_10_e_a_11a_continua_escalada_com_aviso():
     colab = colaboradores_df([{"funcionario": "Clima 1", "cargo": "Técnico de Climatização"}])
     oc = OcupacaoDiaria()
     for i in range(10):
@@ -63,7 +65,7 @@ def test_climatizacao_chega_a_10_e_nao_passa():
         oc.registrar("Clima 1", DIA, chave_prevista(2, i, DIA))
     diag = {}
     p, _, _ = _recomendar(colab, oc, tipo="Limpeza do split", diag=diag)
-    assert p is None and diag["motivo"] == "limite_diario"
+    assert p is not None and p["acima_limite"] is True and diag["aviso"] == "limite_diario"
 
 
 def test_quando_um_atinge_o_limite_busca_outro_elegivel_e_compativel():
@@ -79,7 +81,7 @@ def test_quando_um_atinge_o_limite_busca_outro_elegivel_e_compativel():
 
 def test_limite_esgotado_nao_empurra_para_cargo_incompativel():
     """Todos os eletricistas cheios + um técnico de climatização livre: a ordem elétrica NÃO
-    pode ir para o climatizador — sinaliza intervenção."""
+    vai para o climatizador — continua com o eletricista (acima do limite), com aviso."""
     colab = colaboradores_df([
         {"funcionario": "Eletricista Cheio", "cargo": "Eletricista"},
         {"funcionario": "Clima Livre", "cargo": "Técnico de Climatização"},
@@ -89,8 +91,8 @@ def test_limite_esgotado_nao_empurra_para_cargo_incompativel():
         oc.registrar("Eletricista Cheio", DIA, chave_os(2000 + i))
     diag = {}
     principal, _, _ = _recomendar(colab, oc, diag=diag)
-    assert principal is None
-    assert diag["motivo"] == "limite_diario"
+    assert principal["nome"] == "Eletricista Cheio" and principal["acima_limite"] is True
+    assert diag["aviso"] == "limite_diario"
 
 
 def test_mesma_ordem_nao_e_contada_duas_vezes():
@@ -127,12 +129,12 @@ def test_sem_ocupacao_informada_comportamento_antigo_preservado():
     assert principal is not None
 
 
-def test_regra_nominal_respeita_limite_diario():
+def test_regra_nominal_acima_do_limite_continua_escalando_o_responsavel_da_regra_com_aviso():
     colab = _elet("Iranildo", "Outro")
     oc = OcupacaoDiaria()
     for i in range(14):
         oc.registrar("Iranildo", DIA, chave_os(5000 + i))
     diag = {}
     principal, _, _ = _recomendar(colab, oc, diag=diag, nomes_obrigatorios={"Iranildo"})
-    assert principal is None
-    assert diag["motivo"] == "regra_nominal_limite_diario"
+    assert principal["nome"] == "Iranildo" and principal["acima_limite"] is True       # nunca troca por quem não é da regra
+    assert diag["aviso"] == "regra_nominal_limite_diario"

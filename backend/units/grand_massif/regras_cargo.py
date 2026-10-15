@@ -13,15 +13,15 @@ REGRAS_CARGO = (
     RegraCargo("rondas_climatizacao_diarias",
                "Rondas diárias de chiller / ar comprimido: exclusivas do Técnico de Climatização",
                r"RONDA DIARIA.*(CHILLER|AR COMPRIMIDO)", (FAM_TEC_CLIMATIZACAO,)),
-    RegraCargo("limpeza_fancoils_bl1",
-               "Limpeza de fancoils do BL1: Técnico de Climatização",
-               r"LIMPEZA FANCOILS? BL1", (FAM_TEC_CLIMATIZACAO,)),
+    RegraCargo("fancoils_e_fancoletes",
+               "Limpeza de fancoils e fancoletes: Técnico de Climatização",
+               r"(LIMPEZA.*FANCOILS?|\bFANCOLETES?\b)", (FAM_TEC_CLIMATIZACAO,)),
     RegraCargo("inspecao_combate_incendio",
                "Inspeção do sistema de combate a incêndio: Eletricista",
                r"INSPECAO.*COMBATE A INCENDIO", (FAM_ELETRICISTA,)),
-    RegraCargo("teste_partida_geradores",
-               "Teste de partida dos grupos geradores: Eletricista",
-               r"TESTE DE PARTIDA", (FAM_ELETRICISTA,)),
+    RegraCargo("grupos_geradores",
+               "Grupos geradores (teste de partida e demais planos): exclusivamente Eletricista",
+               r"(GERADOR|TESTE DE PARTIDA)", (FAM_ELETRICISTA,)),
     RegraCargo("paineis_termossolares",
                "Limpeza/inspeção dos painéis termossolares: Eletricista",
                r"PAINE(L|IS) TERMOSSOLARE?S?", (FAM_ELETRICISTA,)),
@@ -32,10 +32,12 @@ REGRAS_CARGO = (
                "Réguas de gases medicinais e exaustores/difusores: Auxiliar de Manutenção "
                "(alternativa explícita: Auxiliar de Eletricista)",
                r"(REGUAS? DE GASES|EXAUSTORES/DIFUSORES)", (FAM_AUX_MANUTENCAO,), (FAM_AUX_ELETRICISTA,)),
-    RegraCargo("rondas_iluminacao_e_motobombas",
-               "Ronda de iluminação/tomadas e de motobombas: Eletricista "
-               "(alternativa explícita: Auxiliar de Eletricista)",
-               r"RONDA.*(ILUMINACAO/TOMADAS|MOTOBOMBAS)", (FAM_ELETRICISTA,), (FAM_AUX_ELETRICISTA,)),
+    RegraCargo("motobombas",
+               "Motobombas: Eletricista (os nomes por turno e dia estão em regras.py)",
+               r"MOTOBOMBAS?", (FAM_ELETRICISTA,)),
+    RegraCargo("ronda_iluminacao_tomadas",
+               "Ronda de iluminação/tomadas: Eletricista (alternativa explícita: Auxiliar de Eletricista)",
+               r"RONDA.*ILUMINACAO/TOMADAS", (FAM_ELETRICISTA,), (FAM_AUX_ELETRICISTA,)),
 )
 
 

@@ -372,7 +372,8 @@ def _recomendar(oc: dict, ctx: ContextoGeracao, andares, carga_alta) -> dict:
     regra = aplicar_regras(ctx.regras_resolvidas, _contexto_regra(
         desc, oc["oficina"], oc["_tipo_id"], oc["_periodicidade"], oc["_unidade_tempo"], dia))
     resultado = {"recomendado": None, "recomendados": [], "cargo": "", "escala": "", "score": -999,
-                 "motivo_sem_candidato": None, "regra": None, "alertas": list(regra.alertas)}
+                 "motivo_sem_candidato": None, "regra": None, "alertas": list(regra.alertas),
+                 "requer_intervencao": False, "motivo_intervencao": None}
     if regra.regra_id:
         resultado["regra"] = {"id": regra.regra_id, "status": regra.status, "mensagem": regra.mensagem}
 
@@ -425,6 +426,15 @@ def _recomendar(oc: dict, ctx: ContextoGeracao, andares, carga_alta) -> dict:
         if esc.get("complexidade") == "Alta":
             carga_alta[esc["nome"]] += 1
 
+    if principal.get("acima_limite"):
+        # Limite diário é AVISO: a OS foi escalada mesmo assim; a tela mostra "Requer intervenção" e o motivo ao clicar.
+        limite = principal.get("limite_dia")
+        ocup = (principal.get("ocupacao_dia") or 0) + 1
+        resultado["requer_intervencao"] = True
+        resultado["motivo_intervencao"] = (
+            f"Limite diário de ordens atingido por todos os profissionais "
+            f"{'da regra' if regra.status == 'aplicada' else 'compatíveis'}: a OS foi escalada para {principal['nome']}, "
+            f"que passa a ter {ocup} ordens no dia{f' (limite {limite})' if limite else ''}. Confirme a distribuição.")
     resultado.update({
         "recomendado": principal["nome"],
         "recomendados": [e["nome"] for e in escolhidos],
@@ -485,12 +495,15 @@ def gerar_ocorrencias(
             oc.update(_recomendar(oc, ctx, andares, carga_alta))
         else:
             oc.update({"recomendado": None, "recomendados": [], "cargo": "", "escala": "", "score": -999,
-                       "motivo_sem_candidato": None, "regra": None, "alertas": []})
+                       "motivo_sem_candidato": None, "regra": None, "alertas": [],
+                       "requer_intervencao": False, "motivo_intervencao": None})
         oc["revisao"] = bool(
             (oc["origem"] == "OS" and oc["status"] in STATUS_ABERTOS
              and oc["responsavel_status"] != RESP_ATRIBUIDA)
         )
         oc["sem_candidato"] = bool(precisa and not oc["recomendado"])
+        if oc["sem_candidato"]:
+            oc["requer_intervencao"], oc["motivo_intervencao"] = True, oc["motivo_sem_candidato"]
         _finalizar_campos(oc)
     return todas
 
@@ -552,6 +565,8 @@ def filtrar(itens: list[dict], f: dict) -> list[dict]:
             return False
         if f.get("sem_candidato") is True and not it["sem_candidato"]:
             return False
+        if f.get("requer_intervencao") is True and not it.get("requer_intervencao"):
+            return False
         if resp:
             alvo = " ".join([it.get("recomendado") or "", it.get("responsavel_atual") or "",
                              " ".join(it.get("recomendados") or [])]).lower()
@@ -583,6 +598,7 @@ def totais(itens: list[dict]) -> dict:
         "atrasadas": sum(1 for it in itens if it["atrasada"]),
         "revisao": sum(1 for it in itens if it["revisao"]),
         "sem_candidato": sum(1 for it in itens if it["sem_candidato"]),
+        "requer_intervencao": sum(1 for it in itens if it.get("requer_intervencao")),
         "com_recomendacao": sum(1 for it in itens if it["recomendado"]),
     }
 

@@ -65,7 +65,7 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
     for i, r in enumerate(preventivas, 3):
         if r.get("atrasada"):
             fill = PatternFill("solid", fgColor="FFCDD2")
-        elif r.get("sem_candidato"):
+        elif r.get("sem_candidato") or r.get("requer_intervencao"):
             fill = PatternFill("solid", fgColor="FFEBEE")
         else:
             fill = PatternFill("solid", fgColor=cor_status.get(r.get("status", ""), "FFFFFF"))
@@ -77,7 +77,9 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
         else:
             recomendado = ""
         obs = []
-        if r.get("motivo_sem_candidato"):
+        if r.get("motivo_intervencao"):
+            obs.append("Requer intervenção: " + r["motivo_intervencao"])
+        elif r.get("motivo_sem_candidato"):
             obs.append(r["motivo_sem_candidato"])
         obs.extend(r.get("alertas") or [])
         if r.get("revisao"):

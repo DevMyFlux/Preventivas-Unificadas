@@ -12,7 +12,7 @@ def test_migracao_cria_as_tabelas_e_e_idempotente(app):
             "colaborador_overlay", "schema_migrations", "suporte_solicitacoes", "os_responsavel_historico"} <= migrations.tabelas_existentes()
     assert migrations.migrar() == []          # segunda execução: nada a aplicar
     with sessao() as s:
-        assert [m.version for m in s.scalars(select(models.SchemaMigration)).all()] == [1, 2, 3, 4, 5, 6]
+        assert [m.version for m in s.scalars(select(models.SchemaMigration)).all()] == [1, 2, 3, 4, 5, 6, 7]
 
 
 def test_migracao_nao_apaga_dados_existentes(app, criar_usuarios):
@@ -88,3 +88,31 @@ def test_migracoes_simultaneas_de_verdade_em_arquivo_sqlite(tmp_path):
     [t.join() for t in ts]
     assert not erros
     assert {"users", "audit_log", "colaborador_overlay"} <= migrations.tabelas_existentes()
+
+
+def test_migracao_007_registra_admissoes_da_hetrin_sem_sobrescrever_datas_existentes(app):
+    import json
+    from core.overlay_store import DbStore
+    from units.grand_massif import config as cfg_gm
+    cfg_gm.OVERLAY.load()                                   # semeia a unidade (o JSON do repositório já traz as datas)
+    t = models.ColaboradorOverlay.__table__
+    with db.get_engine().begin() as conn:
+        # banco "antigo": sem a data do Eduardo; Alceu com uma data diferente já registrada pela tela
+        conn.execute(t.delete().where(t.c.unit == "HETRIN", t.c.chave == "EDUARDO OLIVEIRA DA CUNHA"))
+        conn.execute(t.update().where(t.c.unit == "HETRIN", t.c.chave == "ALCEU RODRIGUES JUNIOR")
+                     .values(dados=json.dumps({"data_admissao": "2026-10-20"})))
+        migrations._m007_admissoes_hetrin(conn)
+        migrations._m007_admissoes_hetrin(conn)             # idempotente
+    dados = DbStore("HETRIN").load()
+    assert dados["EDUARDO OLIVEIRA DA CUNHA"]["data_admissao"] == "2026-10-02"
+    assert dados["ALCEU RODRIGUES JUNIOR"]["data_admissao"] == "2026-10-20"        # decisão manual preservada
+    with sessao() as s:
+        assert len(s.scalars(select(models.ColaboradorOverlay).where(models.ColaboradorOverlay.unit == "HETRIN",
+                                                                  models.ColaboradorOverlay.chave == "EDUARDO OLIVEIRA DA CUNHA")).all()) == 1
+
+
+def test_migracao_007_nao_faz_nada_em_unidade_ainda_nao_semeada(app):
+    t = models.ColaboradorOverlay.__table__
+    with db.get_engine().begin() as conn:
+        migrations._m007_admissoes_hetrin(conn)
+        assert conn.execute(select(t.c.id).where(t.c.unit == "HETRIN")).first() is None
