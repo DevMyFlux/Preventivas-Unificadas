@@ -325,9 +325,11 @@ function Linha({ it, onIrParaRegras }: { it: Preventiva; onIrParaRegras?: () => 
               <button type="button" className="btn btn-ghost btn-sm" onClick={onIrParaRegras}>Resolver</button>
             )}
           </>
-        ) : it.responsavel_nome
-          ? <div className="cell-clip" title={`Responsável: ${it.responsavel_nome}`}>{it.responsavel_nome}</div>
-          : <span className="muted">—</span>}
+        ) : it.sem_recomendacao_motivo
+          ? <span className="muted" title="Não é preciso recomendar executante nesta linha">{it.sem_recomendacao_motivo}</span>
+          : it.responsavel_nome
+            ? <div className="cell-clip" title={`Responsável: ${it.responsavel_nome}`}>{it.responsavel_nome}</div>
+            : <span className="muted">—</span>}
         {it.cargo_fora_da_regra && <div className="cell-sub" style={{ color: 'var(--warning-text)' }}>{it.cargo_fora_da_regra}</div>}
       </td>
     </tr>

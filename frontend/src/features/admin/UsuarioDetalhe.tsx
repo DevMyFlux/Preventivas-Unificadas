@@ -65,7 +65,7 @@ export default function UsuarioDetalhe({ userId, onClose, onChanged }: { userId:
       {u && (
         <div className="stack">
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            {u.is_dev ? <Chip tone="primary">Dev · todas as unidades</Chip> : <Chip tone="neutral">{u.unit_name ?? u.unit}</Chip>}
+            {u.is_dev ? <Chip tone="primary">Administrador · todas as unidades</Chip> : <Chip tone="neutral">{u.unit_name ?? u.unit}</Chip>}
             <Chip tone={u.is_active ? 'success' : 'danger'}>{u.is_active ? 'Conta ativa' : 'Conta desativada'}</Chip>
             {uso && <Chip tone={ESTADO_AGORA[uso.estado_agora].tone}>{ESTADO_AGORA[uso.estado_agora].texto}</Chip>}
             {u.must_change_password && <Chip tone="info" dot={false}>Trocar senha</Chip>}

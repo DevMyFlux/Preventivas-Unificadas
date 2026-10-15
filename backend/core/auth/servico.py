@@ -157,7 +157,7 @@ def bootstrap_admin() -> str:
     mensagem = None
     with sessao() as s:
         alvo = s.scalar(select(User).where(User.username == u))
-        dev_atual = s.scalar(select(User).where(User.role == ROLE_DEV))
+        dev_atual = s.scalar(select(User).where(User.role == ROLE_DEV).order_by(User.id))   # o administrador INICIAL (mais antigo)
         if alvo is not None and alvo.role != ROLE_DEV:
             return "AVISO: DEV_ADMIN_USERNAME coincide com um usuário comum; nada foi alterado."
         if alvo is None and dev_atual is not None and not reset:

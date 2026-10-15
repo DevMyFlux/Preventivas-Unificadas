@@ -111,11 +111,13 @@ def test_ronda_automatica_mostra_o_nome_do_responsavel_e_nao_um_status():
     """O campo mostra o NOME do responsável (equipe do Neovero), independente do ocorrido — nunca um rótulo de status."""
     oc = _gerar(_ctx(), [_ronda(31, "ELÉTRICA - DIURNO")])[0]
     assert oc["responsavel_nome"] == "ELÉTRICA - DIURNO" and oc["recomendado"] is None
+    assert oc["sem_recomendacao_motivo"] is None            # sem rótulo de status: a tela mostra o nome
     # previsão (sem OS): o responsável PADRÃO do plano, cujo nome vem das OS carregadas com o mesmo id
     plano = plano_neovero(1, "PM - DIÁRIO - RONDA – CHILLERS", oficina="ELÉTRICA", periodicidade=1, unidade="D", tipo_id=8)
     plano["responsavelId"] = 67
     ocs = _gerar(_ctx(), [_ronda(32, "ELÉTRICA - DIURNO", situacao=3)], [plano], {1: [item_plano(10, "2026-10-15", equip_id=77)]})
     proj = [o for o in ocs if o["origem"] == "Plano"]
-    assert proj and all(o["responsavel_nome"] == "ELÉTRICA - DIURNO" and o["recomendado"] is None for o in proj)
+    assert proj and all(o["responsavel_nome"] == "ELÉTRICA - DIURNO" and o["recomendado"] is None
+                        and o["sem_recomendacao_motivo"] is None for o in proj)
     sem_nome = _gerar(_ctx(), [], [{**plano, "responsavelId": 999}], {1: [item_plano(10, "2026-10-15", equip_id=77)]})
     assert all(o["responsavel_nome"] is None for o in sem_nome if o["origem"] == "Plano")      # id desconhecido: não inventa

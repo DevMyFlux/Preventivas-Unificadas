@@ -84,7 +84,9 @@ export interface Preventiva {
   /** sem candidato OU escalada acima do limite diário — a tela mostra só "Requer intervenção"; o motivo aparece ao clicar */
   requer_intervencao?: boolean;
   motivo_intervencao?: string | null;
-  /** nome do responsável (OS: o do Neovero; previsão: o padrão do plano), mostrado quando não há recomendação */
+  /** rótulo curto quando não há o que recomendar (Concluída, Cancelada, Já atribuída, Sem OS – verificar) */
+  sem_recomendacao_motivo?: string | null;
+  /** nome do responsável (OS: o do Neovero; previsão: o padrão do plano) — mostrado nos casos automáticos, sem rótulo */
   responsavel_nome?: string | null;
   regra: { id: string; status: 'aplicada' | 'pendente'; mensagem: string } | null;
   alertas: string[];

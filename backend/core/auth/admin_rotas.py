@@ -16,7 +16,7 @@ from core.auth.http import ip_cliente
 from core.auth.rotas import serializar_usuario
 from core.db import agora_utc, sessao
 from core.exporters import gerar_csv_tabela, gerar_excel_tabela
-from core.models import ROLE_USER, AuthSession, SuporteSolicitacao, User
+from core.models import ROLE_DEV, ROLE_USER, AuthSession, SuporteSolicitacao, User
 from core.settings import settings
 from core.unidades import UNIDADES, codigo_valido
 
@@ -91,19 +91,21 @@ def listar_usuarios():
 @bp.route("/users", methods=["POST"])
 @dev_required
 def criar_usuario():
+    """Cria usuário comum (vinculado a uma unidade) ou ADMINISTRADOR (`role: "dev"`, acessa todas as unidades).
+    Só administradores chegam aqui (guarda global + `dev_required`): portanto só administrador cria administrador."""
     c = request.get_json(silent=True) or {}
-    if c.get("role", ROLE_USER) != ROLE_USER:
-        return jsonify({"erro": "Somente o administrador inicial (Dev) tem perfil Dev; não é possível criar outro.",
-                        "codigo": "perfil_invalido"}), 400
+    role = c.get("role", ROLE_USER)
+    if role not in (ROLE_USER, ROLE_DEV):
+        return jsonify({"erro": "Perfil inválido.", "codigo": "perfil_invalido", "campo": "role"}), 400
     try:
         user = servico.criar_usuario(
             str(c.get("username", "")), str(c.get("password", "")),
-            display_name=str(c.get("display_name", "")), role=ROLE_USER, unit=c.get("unit"),
+            display_name=str(c.get("display_name", "")), role=role, unit=c.get("unit"),
             criado_por=g.user.username, must_change_password=bool(c.get("must_change_password", False)),
         )
     except servico.ValidacaoError as e:
         return jsonify({"erro": e.mensagem, "campo": e.campo}), 400
-    g.audit_details = {"unidade": user.unit}
+    g.audit_details = {"perfil": user.role, "unidade": user.unit}
     return jsonify(_serializar(user)), 201
 
 
@@ -190,7 +192,13 @@ def alterar_ativo(user_id: int):
         if not user:
             return jsonify({"erro": "Usuário não encontrado."}), 404
         if user.is_dev and not ativo:
-            return jsonify({"erro": "A conta Dev não pode ser desativada.", "codigo": "dev_protegido"}), 400
+            if user.id == g.user.id:
+                return jsonify({"erro": "Você não pode desativar a sua própria conta de administrador.",
+                                "codigo": "admin_proprio"}), 400
+            outros = s.scalar(select(func.count()).select_from(User).where(
+                User.role == ROLE_DEV, User.is_active.is_(True), User.id != user.id)) or 0
+            if outros == 0:    # nunca fica sem administrador ativo
+                return jsonify({"erro": "Não é possível desativar o último administrador ativo.", "codigo": "dev_protegido"}), 400
         user.is_active = ativo
         user.deactivated_at = None if ativo else agora_utc()
         if ativo:
@@ -211,7 +219,7 @@ def redefinir_senha(user_id: int):
     if not alvo:
         return jsonify({"erro": "Usuário não encontrado."}), 404
     if alvo.is_dev and alvo.id != g.user.id:
-        return jsonify({"erro": "Somente o próprio Dev pode alterar a senha da conta Dev."}), 403
+        return jsonify({"erro": "Cada administrador altera a própria senha; a senha de outro administrador não pode ser redefinida aqui."}), 403
     try:
         servico.alterar_senha(user_id, str(c.get("password", "")), forcar_troca=bool(c.get("must_change_password", True)))
     except servico.ValidacaoError as e:

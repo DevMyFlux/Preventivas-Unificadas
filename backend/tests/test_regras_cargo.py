@@ -243,7 +243,7 @@ def test_nomes_novos_dos_status_futuro_e_passado():
     assert prev.classificar_status(None, date(2026, 10, 10), HOJE) == ("Sem OS – verificar", False)
 
 
-def test_linhas_sem_recomendacao_trazem_o_nome_do_responsavel_independente_do_ocorrido():
+def test_linhas_sem_recomendacao_mantem_rotulos_curtos_e_trazem_o_nome_do_responsavel():
     ctx = _ctx([ELETRICISTA])
     reais = [
         os_neovero(1, "2026-10-10", situacao=3, responsavel="ELETRICISTA A", responsavel_id=2, equip_id=1),     # concluída
@@ -252,6 +252,7 @@ def test_linhas_sem_recomendacao_trazem_o_nome_do_responsavel_independente_do_oc
         _os(4, "PM - MENSAL - SPLIT"),                                                                              # gestor: recebe recomendação
     ]
     por = {o["os_vinculada"]: o for o in _gerar(ctx, reais)}
-    assert [por[n]["responsavel_nome"] for n in "123"] == ["ELETRICISTA A"] * 3          # concluída, cancelada e já atribuída
+    assert [por[n]["sem_recomendacao_motivo"] for n in "123"] == ["Concluída", "Cancelada", "Já atribuída"]   # rótulos que ajudam a ler
+    assert [por[n]["responsavel_nome"] for n in "123"] == ["ELETRICISTA A"] * 3                          # e o nome continua disponível
     assert all(por[n]["recomendado"] is None for n in "123")
     assert por["4"]["recomendado"] == "Eletricista A" and por["4"]["responsavel_nome"] == SUPERVISAO

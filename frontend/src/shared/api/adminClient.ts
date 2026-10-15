@@ -21,7 +21,7 @@ export function auditQuery(f: AuditFilters): Query {
 
 export const adminApi = {
   listUsers: () => get<{ itens: AdminUser[]; unidades: { codigo: string; nome: string }[] }>('/api/admin/users'),
-  createUser: (u: { username: string; password: string; display_name: string; unit: string; must_change_password: boolean }) =>
+  createUser: (u: { username: string; password: string; display_name: string; unit?: string; role?: 'user' | 'dev'; must_change_password: boolean }) =>
     post<AdminUser>('/api/admin/users', u),
   updateUser: (id: number, u: { display_name?: string; unit?: string }) => patch<AdminUser>(`/api/admin/users/${id}`, u),
   messages: (q: { situacao?: string; tipo?: string; unit?: string; page?: number; pageSize?: number }) =>
