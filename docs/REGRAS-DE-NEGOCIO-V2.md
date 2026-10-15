@@ -77,6 +77,10 @@ Decisão adotada (“seguir o Neovero”), **só na HMB**:
 - a tabela nominal abaixo está **desativada** (`REGRAS_DESATIVADAS` em `units/brasilandia/regras.py`) — some a pendência de “Michael” e
   “Diego H”; o código e os testes continuam, caso seja pedido reativar;
 - uma ronda diária em nome de **gestor** (ou desligado/bloqueado/vazio) continua sendo sinalizada e recebe recomendação;
+- **Quem aparece na tela:** no lugar do nome da equipe, a coluna Recomendado mostra **as pessoas de plantão naquela equipe, naquele dia** (escala vigente:
+  Elétrica = eletricista/aux. elétrica; Climatização = técnico/aux. de climatização; turno da equipe; sem gestão, desligados ou bloqueados), com “Plantão · <equipe>”
+  logo abaixo. Vale para OS abertas e previsões (a equipe padrão do plano). Sem ninguém de plantão, ou em mês diferente do da escala carregada, mostra só o nome
+  da equipe — nunca inventa pessoa. OS concluídas continuam com o rótulo “Concluída”;
 - nomes de equipe só valem em plano automático: em outro plano (ex.: mensal) “ELÉTRICA - DIURNO” segue como Genérico.
 
 Efeito medido nos dados reais da HMB: OS abertas em Revisão **294 → 259** (−35); Genérico entre as abertas 38 → 3; “sem candidato”
