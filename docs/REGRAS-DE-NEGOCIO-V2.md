@@ -138,6 +138,11 @@ responsável, busca, revisão, sem candidato, origem. Totais, tabela, paginaçã
 **não aceita linhas do cliente**. “Incluir atrasadas de dias anteriores” (ligado por padrão) traz as OS ainda abertas
 mesmo fora do período.
 
+**Excel (só o arquivo; a tela não muda):** a OS atrasada sai com o status **“<status> em atraso”** (“Pendente em atraso”,
+“Em andamento em atraso”, “Parada em atraso”) e a coluna **“Período em atraso”** (antes “Atrasada”) traz há quanto tempo,
+da data prevista até hoje (fuso do Brasil): menos de um mês de calendário em dias (“1 dia”, “24 dias”); a partir de um mês,
+em meses e dias (“1 mês”, “2 meses e 5 dias”). Fora de atraso a coluna fica vazia e o status não muda.
+
 ## 5.8 Cargo exigido por plano (HETRIN)
 
 Mecanismo genérico (`core/regras/cargos.py`) com tabela **por unidade** (`units/grand_massif/regras_cargo.py`); a HMB não

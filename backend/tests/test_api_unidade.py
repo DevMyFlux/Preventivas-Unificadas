@@ -178,7 +178,7 @@ def test_exportacao_e_consistente_com_a_listagem_filtrada(ana, neovero):
     linhas = [l for l in linhas if any(l)]
     assert len(linhas) == lista["total"]
     assert {str(l[10]) for l in linhas} == {i["os_vinculada"] for i in lista["itens"]}
-    assert all(l[3] in ("Pendente", "Em andamento") and l[4] == "Sim" for l in linhas)
+    assert all(l[3] in ("Pendente em atraso", "Em andamento em atraso") and l[4] for l in linhas)
 
 
 def test_exportacao_ignora_linhas_enviadas_pelo_cliente(ana, neovero):

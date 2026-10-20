@@ -1,7 +1,8 @@
 """Geração de Excel compartilhada (openpyxl). Usada por ambas as unidades."""
+import calendar
 import csv
 import io
-from datetime import datetime
+from datetime import date, datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -35,13 +36,51 @@ def _titulo_row(ws, cols: list[tuple[str, int]], titulo: str):
     ws.row_dimensions[1].height = 28
 
 
-def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unidade: str = "") -> io.BytesIO:
+def _somar_meses(d: date, meses: int) -> date:
+    m = d.month - 1 + meses
+    ano, mes = d.year + m // 12, m % 12 + 1
+    return date(ano, mes, min(d.day, calendar.monthrange(ano, mes)[1]))
+
+
+def descrever_atraso(data_prev: date, hoje: date) -> str:
+    """Tempo entre a data prevista e hoje, em linguagem corrida: "3 dias", "1 mês", "2 meses e 5 dias".
+    Menos de um mês de calendário fica em dias; vazio quando não há atraso."""
+    dias = (hoje - data_prev).days
+    if dias <= 0:
+        return ""
+    meses = (hoje.year - data_prev.year) * 12 + hoje.month - data_prev.month
+    if hoje.day < data_prev.day:
+        meses -= 1
+    if meses <= 0:
+        return f"{dias} dia" if dias == 1 else f"{dias} dias"
+    resto = max(0, (hoje - _somar_meses(data_prev, meses)).days)
+    texto = f"{meses} mês" if meses == 1 else f"{meses} meses"
+    if resto:
+        texto += f" e {resto} dia" if resto == 1 else f" e {resto} dias"
+    return texto
+
+
+def _atraso_da_linha(r: dict, hoje: date) -> str:
+    if not r.get("atrasada"):
+        return ""
+    try:
+        return descrever_atraso(date.fromisoformat(str(r.get("data_iso") or "")), hoje)
+    except ValueError:
+        return ""
+
+
+def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unidade: str = "", hoje: date | None = None) -> io.BytesIO:
+    """Planilha das preventivas já filtradas. OS atrasadas saem com o status "<status> em atraso" e, em "Período em atraso",
+    há quanto tempo estão atrasadas (data prevista até `hoje`, data local do Brasil)."""
+    if hoje is None:
+        from core.preventivas import hoje_local   # import tardio: evita ciclo exporters <-> preventivas
+        hoje = hoje_local()
     wb = Workbook()
     ws = wb.active
     ws.title = "Preventivas"
 
     cols = [
-        ("Data", 12), ("Dia", 8), ("Turno", 10), ("Status", 14), ("Atrasada", 10), ("Plano", 42), ("Tipo", 14),
+        ("Data", 12), ("Dia", 8), ("Turno", 10), ("Status", 24), ("Período em atraso", 20), ("Plano", 42), ("Tipo", 14),
         ("Oficina", 20), ("Equipamento", 28), ("Setor", 30), ("OS", 12), ("Responsável atual (Neovero)", 30),
         ("Situação do responsável", 16), ("Recomendado", 32), ("Cargo", 28), ("Escala", 16), ("Revisão", 9),
         ("Observação", 60),
@@ -88,8 +127,8 @@ def gerar_excel_preventivas(preventivas: list, d_ini=None, d_fim=None, nome_unid
             r.get("data_prev", ""),
             r.get("dia_par", ""),
             r.get("turno", ""),
-            r.get("status", ""),
-            "Sim" if r.get("atrasada") else "",
+            f"{r.get('status', '')} em atraso" if r.get("atrasada") else r.get("status", ""),
+            _atraso_da_linha(r, hoje),
             r.get("plano", ""),
             r.get("tipo", ""),
             r.get("oficina", ""),

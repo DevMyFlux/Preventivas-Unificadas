@@ -302,7 +302,7 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
         r = gerar(d_ini, d_fim, _bool_arg("incluir_atrasadas", True))
         filtrados = prev.filtrar(r["itens"], filtros_da_requisicao())
         g.audit_details = {"linhas": len(filtrados)}
-        buf = gerar_excel_preventivas(filtrados, d_ini, d_fim, cfg.NOME)
+        buf = gerar_excel_preventivas(filtrados, d_ini, d_fim, cfg.NOME, hoje=prev.hoje_local())
         sufixo = f"{d_ini.strftime('%Y%m%d')}_{d_fim.strftime('%Y%m%d')}"
         return send_file(buf, as_attachment=True, download_name=f"{codigo_unidade.lower()}_preventivas_{sufixo}.xlsx",
                          mimetype=_XLSX)
