@@ -63,6 +63,31 @@ def plano_automatico(descricao: str, oficina: str, tipo_id, periodicidade, unida
     return _ronda_diaria(descricao, tipo_id, periodicidade, unidade_tempo)
 
 
+# Distribuição das rondas diárias entre as equipes (tabela enviada pelos usuários, out/2026): TODAS as rondas de CLIMATIZAÇÃO
+# ficam com a equipe CLIMATIZAÇÃO-NOTURNO (alivia o diurno, que tem um técnico só) e as rondas de ELÉTRICA/QGBT seguem o turno do
+# nome do plano (DIURNO por padrão; "NOTURNO"/"NOTUR" no nome → noturno). Só vale para rondas diárias; as demais oficinas ficam
+# como o Neovero definiu.
+_RE_NOTURNO = re.compile(r"\bNOTUR")
+
+EQUIPES_ROTULO = {
+    "eletrica diurno": "ELÉTRICA - DIURNO", "eletrica noturno": "ELÉTRICA - NOTURNO",
+    "climatizacao diurno": "CLIMATIZAÇÃO - DIURNO", "climatizacao noturno": "CLIMATIZAÇÃO - NOTURNO",
+}
+
+
+def equipe_da_ronda(descricao: str, oficina: str, tipo_id, periodicidade, unidade_tempo) -> str | None:
+    """Equipe (nome normalizado) que deve responder pela ronda diária segundo a distribuição definida; None = sem regra."""
+    if not _ronda_diaria(descricao, tipo_id, periodicidade, unidade_tempo):
+        return None
+    of = sem_acento(oficina or "").upper()
+    desc = sem_acento(descricao or "").upper()
+    if "CLIMATIZACAO" in of:
+        return "climatizacao noturno"
+    if "ELETRICA" in of:
+        return "eletrica noturno" if _RE_NOTURNO.search(desc) else "eletrica diurno"
+    return None
+
+
 def _eh_oficina_ar_comprimido_vacuo(ctx: ContextoOcorrencia) -> bool:
     oficina = sem_acento(ctx.oficina).upper()
     return "AR COMPRIMIDO" in oficina and "VACUO" in oficina

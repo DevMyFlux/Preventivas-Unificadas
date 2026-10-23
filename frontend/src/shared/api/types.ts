@@ -90,6 +90,7 @@ export interface Preventiva {
   responsavel_nome?: string | null;
   /** rondas automáticas (HMB): quem está de plantão, na escala, na equipe do Neovero que responde pela OS naquele dia */
   responsaveis_plantao?: string[];
+  equipe_neovero?: string | null;
   regra: { id: string; status: 'aplicada' | 'pendente'; mensagem: string } | null;
   alertas: string[];
   /** cargo exigido pelo plano (regra de cargo da unidade), quando existe */

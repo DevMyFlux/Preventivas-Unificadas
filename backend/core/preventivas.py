@@ -133,6 +133,9 @@ class ContextoGeracao:
     nomes_equipe: frozenset = frozenset()   # nomes normalizados dos responsáveis de equipe aceitos nesses planos
     # (colab_ativos, equipe_normalizada, dia) -> nomes de quem está de plantão nessa equipe nesse dia (a tela mostra as pessoas, não a equipe)
     plantonistas_fn: object = None
+    # (desc, oficina, tipo_id, periodicidade, unidade) -> equipe (normalizada) que DEVE responder pela ronda, ou None (distribuição por unidade)
+    equipe_esperada_fn: object = None
+    equipes_rotulo: dict = field(default_factory=dict)   # equipe normalizada -> rótulo de tela
     hist_tipo: dict = field(default_factory=dict)
     hist_ativo: dict = field(default_factory=dict)
     carga: dict = field(default_factory=dict)
@@ -503,6 +506,7 @@ def gerar_ocorrencias(
             nomes_por_id.setdefault(rid, nome)
     for pr in projecoes:
         pr["responsavel_nome"] = nomes_por_id.get(pr.get("_resp_plano_id"))
+        _aplicar_equipe_esperada(pr, ctx)
         pr["responsaveis_plantao"] = _plantao_da_equipe(pr, ctx)
 
     # 3) responsável atual das OS reais + registro na ocupação diária (sem dupla contagem)
@@ -511,6 +515,8 @@ def gerar_ocorrencias(
         oc["responsavel_status"] = status_resp
         oc["responsavel_cadastro"] = cadastro
         oc["responsavel_nome"] = oc["responsavel_atual"]
+        if status_resp == RESP_EQUIPE:
+            _aplicar_equipe_esperada(oc, ctx)
         oc["responsaveis_plantao"] = _plantao_da_equipe(oc, ctx) if status_resp == RESP_EQUIPE else []
         oc["cargo_fora_da_regra"] = _desvio_de_cargo(oc, cadastro, ctx) if oc["status"] in STATUS_ABERTOS else None
         if cadastro and oc["status"] != ST_CANCELADA and not limites.tipo_isento(oc["_tipo_id"]):
@@ -547,12 +553,32 @@ def gerar_ocorrencias(
         )
         # rótulo curto quando NÃO há o que recomendar (ajuda a entender a linha). Casos "automáticos" (equipe do Neovero) ficam
         # sem rótulo: a tela mostra o NOME do responsável (`responsavel_nome`), não um texto que pareça status.
+        if oc.get("equipe_neovero"):
+            oc["alertas"] = [*oc.get("alertas", []),
+                             f"Equipe no Neovero: {oc['equipe_neovero']} — distribuição definida: {oc['responsavel_nome']} "
+                             "(ajuste do responsável do plano é feito no Neovero)"]
         oc["sem_recomendacao_motivo"] = None if precisa else _motivo_sem_recomendacao(oc)
         oc["sem_candidato"] = bool(precisa and not oc["recomendado"])
         if oc["sem_candidato"]:
             oc["requer_intervencao"], oc["motivo_intervencao"] = True, oc["motivo_sem_candidato"]
         _finalizar_campos(oc)
     return todas
+
+
+def _aplicar_equipe_esperada(oc: dict, ctx: ContextoGeracao) -> None:
+    """Rondas diárias com distribuição definida pela unidade (ex.: HMB — todas as de climatização na equipe NOTURNO): a equipe
+    que responde passa a ser a definida, não a que o Neovero tem como padrão. Quando diferem, a equipe do Neovero fica em
+    `equipe_neovero` (vira alerta: o sistema não altera o Neovero). Só atua em ocorrência de plano automático e de equipe."""
+    if ctx.equipe_esperada_fn is None or not ctx.nomes_equipe:
+        return
+    atual = normalizar_nome(oc.get("responsavel_nome") or "")
+    if atual not in ctx.nomes_equipe:
+        return
+    esperada = ctx.equipe_esperada_fn(oc["plano"], oc["oficina"], oc["_tipo_id"], oc["_periodicidade"], oc["_unidade_tempo"])
+    if not esperada or esperada == atual or esperada not in ctx.nomes_equipe:
+        return
+    oc["equipe_neovero"] = oc["responsavel_nome"]
+    oc["responsavel_nome"] = ctx.equipes_rotulo.get(esperada, esperada.upper())
 
 
 def _plantao_da_equipe(oc: dict, ctx: ContextoGeracao) -> list[str]:

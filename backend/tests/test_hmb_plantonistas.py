@@ -52,8 +52,8 @@ def _ctx():
                                 plano_automatico_fn=plano_automatico, nomes_equipe=RESPONSAVEIS_EQUIPE, plantonistas_fn=plantonistas)
 
 
-def _ronda(numero, dia, responsavel, situacao=1):
-    return os_neovero(numero, dia, situacao=situacao, responsavel=responsavel, responsavel_id=67, plano="PM - DIÁRIO - RONDA – CHILLERS",
+def _ronda(numero, dia, responsavel, situacao=1, plano="PM - DIÁRIO - RONDA – CHILLERS"):
+    return os_neovero(numero, dia, situacao=situacao, responsavel=responsavel, responsavel_id=67, plano=plano,
                       tipo="RONDA", tipo_id=8, periodicidade=1, unidade_tempo="D", oficina="ELÉTRICA", equip_id=int(numero))
 
 
@@ -101,7 +101,8 @@ def test_ronda_concluida_continua_com_o_rotulo_e_a_pessoa_de_plantao_nao_substit
 
 
 def test_api_traz_responsaveis_plantao_na_listagem(ana, neovero):
-    neovero.os_periodo = [_ronda(11, "2026-10-14", "ELÉTRICA - NOTURNO")]
+    # plano elétrico NOTURNO na equipe ELÉTRICA - NOTURNO: já está na equipe definida (nada é redistribuído)
+    neovero.os_periodo = [_ronda(11, "2026-10-14", "ELÉTRICA - NOTURNO", plano="PM – DIÁRIO - RONDA - ÁGUA POTÁVEL – NOTURNO")]
     neovero.os_abertas = list(neovero.os_periodo)
     item = _get(ana, data_ini="2026-10-14", data_fim="2026-10-14").get_json()["itens"][0]
     assert item["responsavel_nome"] == "ELÉTRICA - NOTURNO" and isinstance(item["responsaveis_plantao"], list)
