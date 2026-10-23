@@ -103,6 +103,17 @@ Efeito medido nos dados reais da HMB: OS abertas em Revisão **294 → 259** (�
   A confirmação só aceita colaborador **ativo**, que **execute OS** e cujo primeiro nome combine com o apelido.
 - Combinação sem regra especificada → comportamento anterior preservado.
 
+### 5.4.1 Distribuição das rondas entre as equipes (HMB, pedido dos usuários — out/2026)
+
+Tabela enviada pelos usuários (nome do plano → equipe): **todas** as rondas diárias de **CLIMATIZAÇÃO** ficam com a equipe
+**CLIMATIZAÇÃO - NOTURNO** (alivia o diurno, que opera com um técnico só); as rondas de **ELÉTRICA/QGBT** seguem o turno do nome do
+plano (DIURNO por padrão; “NOTURNO”/“NOTUR” → noturno). Implementação: `equipe_da_ronda` (`units/brasilandia/regras.py`) +
+gancho `equipe_esperada_fn` (`core/preventivas.py`). A tela mostra a equipe definida e as **pessoas de plantão dela**; quando difere da
+equipe que o Neovero tem como padrão, vem o alerta “Equipe no Neovero: … — distribuição definida: …” (campo `equipe_neovero`).
+O sistema **não altera o Neovero** (escrita desligada): ajustar o responsável do plano lá faz o alerta sumir.
+Dados reais (23–31/10): 89 rondas de climatização → todas na equipe noturna (35 divergiam do Neovero, que as tinha no diurno);
+as 257 rondas elétricas já batiam com a tabela (0 divergências). Só rondas diárias; só HMB.
+
 ## 5.5 Oficina de ar comprimido e vácuo (HMB)
 
 - Plano da oficina “AR COMPRIMIDO E VÁCUO” (qualquer periodicidade), turno **diurno**: **par → Douglas Rodrigues + Gustavo
@@ -145,10 +156,18 @@ em meses e dias (“1 mês”, “2 meses e 5 dias”). Fora de atraso a coluna 
 
 ## 5.8 Cargo exigido por plano (HETRIN)
 
-Mecanismo genérico (`core/regras/cargos.py`) com tabela **por unidade** (`units/grand_massif/regras_cargo.py`); a HMB não
-tem tabela e **não herda nada**. Gate estrito no motor: só concorre quem é de uma família de cargo permitida, disponível
+Mecanismo genérico (`core/regras/cargos.py`) com tabela **por unidade** (`units/grand_massif/regras_cargo.py`); a HMB tem a
+sua própria (`units/brasilandia/regras_cargo.py`, ver 5.8.1) e **não herda nada** da HETRIN. Gate estrito no motor: só concorre quem é de uma família de cargo permitida, disponível
 e com vaga no dia; sem ninguém → *sem candidato* com o motivo (o sistema **nunca escolhe outro cargo por conta própria**).
 Cargo **alternativo** só existe quando declarado na tabela e só entra se nenhum principal puder — e o resultado traz o aviso.
+
+### 5.8.1 Cargo exigido por plano (HMB — pedido dos usuários, out/2026)
+
+Executantes dos planos mensais (o Neovero os deixa no nome do supervisor): **PM - MENSAL - MOTOBOMBA** e **PM - MENSAL - RONDA -
+ILUMINAÇÃO** → Auxiliar de Manutenção Elétrica; **PM - MENSAL - FANCOIL** → Técnico de Climatização; **QUADROS ELÉTRICOS**
+(mensal, trimestral, semestral e preditiva) → Eletricista. Sem cargo alternativo: sem ninguém do cargo, *sem candidato* com o
+motivo. Motobomba semanal/trimestral/anual e fancoil trimestral/semestral **não** entram (só o que foi pedido). Dados reais:
+831 previsões dos 4 grupos, todas com o cargo pedido e nenhuma sem candidato.
 
 | Plano (padrão no nome) | Cargo principal | Alternativa explícita |
 |---|---|---|

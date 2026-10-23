@@ -10,11 +10,13 @@ from units.brasilandia import config as CFG
 from units.brasilandia.colaboradores import carregar_colaboradores, invalidar_cache
 from units.brasilandia.motor import indicar_responsavel
 from units.brasilandia.equipes import plantonistas
-from units.brasilandia.regras import REGRAS, RESPONSAVEIS_EQUIPE, plano_automatico
+from units.brasilandia.regras import EQUIPES_ROTULO, REGRAS, RESPONSAVEIS_EQUIPE, equipe_da_ronda, plano_automatico
+from units.brasilandia.regras_cargo import regra_cargo_do_plano
 
 bp = criar_blueprint(
     nome="brasilandia", cfg=CFG, codigo_unidade="HMB",
     carregar_colaboradores=carregar_colaboradores, invalidar_colaboradores=invalidar_cache,
     indicar_responsavel=indicar_responsavel, regras=REGRAS, nomes_permitidos_fn=None,
     plano_automatico_fn=plano_automatico, nomes_equipe=RESPONSAVEIS_EQUIPE, plantonistas_fn=plantonistas,
+    regra_cargo_fn=regra_cargo_do_plano, equipe_esperada_fn=equipe_da_ronda, equipes_rotulo=EQUIPES_ROTULO,
 )

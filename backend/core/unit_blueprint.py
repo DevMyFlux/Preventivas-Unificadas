@@ -96,7 +96,8 @@ def tratar_erros(fn):
 
 def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invalidar_colaboradores, indicar_responsavel,
                     regras=(), nomes_permitidos_fn=None, regra_cargo_fn=None,
-                    plano_automatico_fn=None, nomes_equipe=frozenset(), plantonistas_fn=None) -> Blueprint:
+                    plano_automatico_fn=None, nomes_equipe=frozenset(), plantonistas_fn=None,
+                    equipe_esperada_fn=None, equipes_rotulo=None) -> Blueprint:
     bp = Blueprint(nome, __name__, url_prefix=f"/api/{cfg.PREFIXO_API}")
     prefixo_cache = f"{codigo_unidade.lower()}_"
     _travas: dict[str, threading.Lock] = defaultdict(threading.Lock)
@@ -229,6 +230,7 @@ def criar_blueprint(*, nome, cfg, codigo_unidade, carregar_colaboradores, invali
             colab_ativos=ativos(colab), colab_todos=colab, indicar=indicar_responsavel,
             regras_resolvidas=resolvidas(colab), nomes_permitidos_fn=nomes_permitidos_fn, regra_cargo_fn=regra_cargo_fn,
             plano_automatico_fn=plano_automatico_fn, nomes_equipe=nomes_equipe, plantonistas_fn=plantonistas_fn,
+            equipe_esperada_fn=equipe_esperada_fn, equipes_rotulo=equipes_rotulo or {},
             # cópias: o cache da base não pode ser mutado pela geração (acumularia a cada chamada)
             hist_tipo=dict(base["hist_tipo"]), hist_ativo=dict(base["hist_ativo"]), carga=dict(base["carga"]),
             hoje=prev.hoje_local())

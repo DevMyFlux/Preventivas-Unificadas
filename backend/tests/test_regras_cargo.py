@@ -170,8 +170,10 @@ def test_hmb_e_qualquer_unidade_sem_tabela_nao_herdam_regra_de_cargo():
     ctx = _ctx([AUX_ELETRICISTA], com_regra=False)
     oc = _gerar(ctx, [_os(1, INSPECAO)])[0]
     assert oc["recomendado"] == "Aux Eletrico A" and "regra_cargo" not in oc
-    import units.brasilandia.routes as hmb
-    assert "regra_cargo" not in open(hmb.__file__, encoding="utf-8").read()
+    # a HMB tem tabela PRÓPRIA (units/brasilandia/regras_cargo.py, pedido de out/2026), sem nenhuma regra da HETRIN
+    from units.brasilandia import regras_cargo as hmb
+    assert not {r.id for r in hmb.REGRAS_CARGO} & {r.id for r in REGRAS_CARGO}
+    assert hmb.regra_cargo_do_plano(INSPECAO) is None
 
 
 # ── OS já atribuída com cargo fora da regra: só sinaliza ─────────────────────
