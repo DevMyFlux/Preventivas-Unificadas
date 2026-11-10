@@ -188,7 +188,7 @@ motivo. Motobomba semanal/trimestral/anual e fancoil trimestral/semestral **não
 | Fancoletes | ímpar | Wagner Alves Cardozo (técnico diurno) |
 | Fancoletes | par | Eduardo Oliveira da Cunha (técnico noturno) |
 | Motobombas | diurno ímpar | Luís Alberto |
-| Motobombas | diurno par | Salem Abreu |
+| Motobombas | diurno par | Wanderley Weverson (substitui Salem Abreu, desligado em 26/10/2026) |
 | Motobombas | noturno ímpar | Lúcio Jorge **e** Valdene Ferreira |
 | Motobombas | noturno par | Maikon Douglas |
 
