@@ -10,7 +10,7 @@ Regras nominais de atribuição da HETRIN (pedido da supervisão — correção 
 
         Turno    Tipo de dia   Responsável
         Diurno   Ímpar         Luís Alberto
-        Diurno   Par           Salem Abreu
+        Diurno   Par           Wanderley Weverson (no lugar de Salem Abreu, desligado em 26/10/2026)
         Noturno  Ímpar         Lúcio Jorge e Valdene Ferreira
         Noturno  Par           Maikon Douglas
 
@@ -58,7 +58,7 @@ MOTOBOMBAS = RegraNominal(
     descricao="Eletricistas por turno e tipo de dia (par/ímpar do dia de execução).",
     linhas=(
         LinhaRegra(TURNO_DIURNO, IMPAR, ("Luís Alberto",)),
-        LinhaRegra(TURNO_DIURNO, PAR, ("Salem Abreu",)),
+        LinhaRegra(TURNO_DIURNO, PAR, ("Wanderley Weverson",)),
         LinhaRegra(TURNO_NOTURNO, IMPAR, ("Lúcio Jorge", "Valdene Ferreira")),
         LinhaRegra(TURNO_NOTURNO, PAR, ("Maikon Douglas",)),
     ),
