@@ -114,6 +114,31 @@ _KW_INSPECAO = ["rotina", "inspeção", "ronda", "pm ", "preventiva"]
 # hidrômetro, termo-higrômetro) — nenhum plano da HMB usa essa palavra.
 _KW_COLETA = ["coleta", "medidor"]
 
+# HMB (Hospital Municipal Brasilândia): a oficina real dessas rondas no Neovero é
+# "ELÉTRICA/QGBT" — como routes.py concatena tipo+descricao+oficina antes de chamar
+# classificar_categoria() (mesmo padrão que gerou o bug "cco"/"comando" acima), a
+# palavra "QGBT" (presente em toda oficina "ELÉTRICA/QGBT", mesmo quando a tarefa não
+# é elétrica) batia em "qgbt" (_KW_ELETRICA) ANTES de qualquer keyword hidráulica ser
+# considerada — forçando ~40 ocorrências/mês de rondas de água/bombas/placas solares
+# pra 'Elétrica', cujo cargo compatível só aceita a família eletricista. Confirmado
+# com dado real (120 planos ativos da HMB, set/2026): das rondas dessa mesma oficina,
+# só estas 6 (12 planos com variante diurno/noturno) são tarefas sem relação com o
+# ofício elétrico — as demais da mesma oficina (CABINE PRIMÁRIA, GRUPO GERADORES,
+# SALA DE IT TRAFO ISOLADOR, SECUNDÁRIA, ILUMINAÇÃO, DISJUNTORES, NOBREAK) são
+# genuinamente elétricas e devem continuar assim — por isso a lista usa frases
+# específicas do próprio nome do plano, não "qgbt" nem palavras soltas que
+# recategorizariam essas outras rondas por engano.
+# Mapeadas pra 'Inspeção' (não 'Hidráulico'): o quadro de colaboradores real da HMB
+# não tem nenhum cargo hidráulico/mecânico dedicado (nem "hidráulico" nem
+# "encanador" aparecem nos cargos da planilha) — 'Hidráulico' restringiria o pool a
+# só Aux. Manutenção/Climatização (6 pessoas), excluindo Técnico de Climatização e os
+# próprios Eletricistas sem necessidade real. Mesmo raciocínio já usado acima pra
+# "coleta"/"medidor" (checado com a mesma prioridade, por isso mapeado junto).
+_KW_RONDA_UTILITARIA_HMB = [
+    "água potável", "água de reuso", "bombas de incêndio", "caixa de água",
+    "bombas de vácuo", "placas solares",
+]
+
 SETORES_CRITICOS = [
     "centro cirúrgico", "sala cirurg", "bloco cirurg", "bloco 4",
     "uti", "uco", "cti", "ccu", "neonatal", "unidade de terapia intensiva",
@@ -145,7 +170,7 @@ def _e_auxiliar_especializado(cargo_l: str) -> bool:
 
 def _classificar_texto(texto: str) -> str:
     t = texto.lower()
-    if any(k in t for k in _KW_COLETA):
+    if any(k in t for k in _KW_COLETA) or any(k in t for k in _KW_RONDA_UTILITARIA_HMB):
         return "Inspeção"
     if any(k in t for k in _KW_REFRIG):
         return "Refrigeração"
