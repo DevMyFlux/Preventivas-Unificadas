@@ -454,13 +454,24 @@ def _prefere_arquivo(a: str, b: str) -> str:
     return max(a, b, key=os.path.getmtime)
 
 
+_MESES_PT_BR = {
+    1: "janeiro", 2: "fevereiro", 3: "marco", 4: "abril", 5: "maio",
+    6: "junho", 7: "julho", 8: "agosto", 9: "setembro", 10: "outubro",
+    11: "novembro", 12: "dezembro",
+}
+
+
+def _mes_do_nome_arquivo(nome: str) -> int | None:
+    nome_norm = _norm_text(nome)
+    for num, mes in _MESES_PT_BR.items():
+        if mes in nome_norm:
+            return num
+    return None
+
+
 def _selecionar_arquivo() -> str | None:
-    meses_pt = {
-        1: "janeiro", 2: "fevereiro", 3: "marco", 4: "abril", 5: "maio",
-        6: "junho", 7: "julho", 8: "agosto", 9: "setembro", 10: "outubro",
-        11: "novembro", 12: "dezembro",
-    }
-    mes_atual = meses_pt[datetime.now().month]
+    mes_atual_num = datetime.now().month
+    mes_atual = _MESES_PT_BR[mes_atual_num]
 
     all_xlsx = glob.glob(os.path.join(DATA_DIR, "*.xlsx"))
     # Case-insensitive: inclui "Escala_*" e "ESCALA DE FOLGA*"
@@ -478,10 +489,25 @@ def _selecionar_arquivo() -> str | None:
             melhor = _prefere_arquivo(melhor, f)
         return melhor
 
-    # Fallback: entre todas as escalas, mesma preferência por conteúdo
-    if escalas:
-        melhor = escalas[0]
-        for f in escalas[1:]:
+    # Fallback: nenhuma escala do mês atual (gap real — ex: pulou direto de
+    # outubro pra dezembro sem planilha de novembro). Nunca escolhe o arquivo de
+    # um mês que ainda não começou: planilhas futuras costumam chegar com
+    # antecedência (ex: a de dezembro já pronta em novembro, pra trocar sozinha
+    # no dia 1º sem redeploy — ver docstring do módulo), e sem esse filtro o
+    # desempate por mtime abaixo sempre escolheria a mais recentemente copiada,
+    # que normalmente é a do mês futuro — servindo a escala de dezembro ainda em
+    # novembro. Confirmado com dado real: adicionar Escala_HMB_Dezembro_2026.xlsx
+    # (HMB não tem planilha de novembro) fazia esse fallback preferi-la sobre a de
+    # outubro, embora ainda estivéssemos em novembro.
+    escalas_nao_futuras = []
+    for f in escalas:
+        mes_arquivo = _mes_do_nome_arquivo(os.path.basename(f))
+        if mes_arquivo is None or mes_arquivo <= mes_atual_num:
+            escalas_nao_futuras.append(f)
+    pool = escalas_nao_futuras or escalas  # nunca fica sem opção (robustez > precisão aqui)
+    if pool:
+        melhor = pool[0]
+        for f in pool[1:]:
             melhor = _prefere_arquivo(melhor, f)
         return melhor
 

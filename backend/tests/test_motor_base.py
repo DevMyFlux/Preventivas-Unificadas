@@ -473,6 +473,50 @@ def test_coleta_hidrometro_nao_vira_hidraulico_exclusivo():
     assert _cargo_compativel("aux. eletricista", categoria) is True
 
 
+# ── Bug real confirmado: oficina "ELÉTRICA/QGBT" (HMB) colidia com "qgbt" ───────
+# Mesmo padrão do bug "cco"/"comando" acima, agora na HMB: a oficina real das rondas
+# de água/bombas/placas solares é "ELÉTRICA/QGBT" — "qgbt" (_KW_ELETRICA) batia nessa
+# oficina e forçava 'Elétrica' pra ~40 ocorrências/mês de rondas hidráulicas/mecânicas/
+# solares sem relação nenhuma com o ofício elétrico. Confirmado com dado real (120
+# planos ativos da HMB, set/2026).
+
+@pytest.mark.parametrize("tipo_os", [
+    "PM – DIÁRIO - RONDA - ÁGUA POTÁVEL",
+    "PM – DIÁRIO - RONDA - BOMBAS ÁGUA DE REUSO",
+    "PM – DIÁRIO - RONDA - BOMBAS DE INCÊNDIO HIDRANTES",
+    "PM – DIÁRIO - RONDA - BOMBAS DE INCÊNDIO SPRIKLER",
+    "PM – DIÁRIO – RONDA - CAIXA DE ÁGUA PRINCIPAL",
+    "PM – DIÁRIO – RONDA - SALA DE BOMBAS DE VÁCUO",
+    "PM – DIÁRIO – RONDA - SIST. AQUE. VIA PLACAS SOLARES",
+])
+def test_rondas_hidraulicas_hmb_com_oficina_qgbt_nao_viram_eletrica(tipo_os):
+    tipo_classif = f"{tipo_os} ELÉTRICA/QGBT"
+    categoria = classificar_categoria(tipo_classif, "", "")
+    assert categoria == "Inspeção"
+    assert _cargo_compativel("aux. manutenção / climatização", categoria) is True
+    assert _cargo_compativel("técnico de climatização", categoria) is True
+
+
+def test_rondas_eletricas_genuinas_da_mesma_oficina_continuam_eletrica():
+    """A oficina 'ELÉTRICA/QGBT' também cobre rondas genuinamente elétricas (cabine
+    primária, grupo geradores, trafo isolador, secundária) — a nova lista de rondas
+    utilitárias usa frases específicas pra não recategorizar essas por engano."""
+    for tipo_os in [
+        "PM – DIÁRIO – RONDA - CABINE PRIMÁRIA ELÉTRICA/QGBT",
+        "PM – DIÁRIO – RONDA - GRUPO GERADORES ELÉTRICA/QGBT",
+        "PM – DIÁRIO – RONDA - SALA DE IT TRAFO ISOLADOR ELÉTRICA/QGBT",
+        "PM – DIÁRIO – RONDA – SECUNDARIA ELÉTRICA/QGBT",
+    ]:
+        assert classificar_categoria(tipo_os, "", "") == "Elétrica"
+
+
+def test_qgbt_no_proprio_plano_continua_eletrica():
+    """'qgbt' quando é o próprio equipamento do plano (não só a oficina) continua
+    classificando 'Elétrica' normalmente — plano real da HETRIN ('PM - RONDA SEMANAL -
+    QGBTS')."""
+    assert classificar_categoria("PM - RONDA SEMANAL - QGBTS", "", "") == "Elétrica"
+
+
 # ── classificar_complexidade ─────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("tipo_os, esperado", [
