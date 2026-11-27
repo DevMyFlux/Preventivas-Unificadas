@@ -439,8 +439,17 @@ def _prefere_arquivo(a: str, b: str) -> str:
     return max(a, b, key=os.path.getmtime)
 
 
+def _mes_do_nome_arquivo(nome: str) -> int | None:
+    nome_norm = _ascii_lower(nome)
+    for num, mes in _MESES_PT.items():
+        if _ascii_lower(mes) in nome_norm:
+            return num
+    return None
+
+
 def _selecionar_arquivo() -> str | None:
-    mes_atual = _ascii_lower(_MESES_PT[datetime.now().month])
+    mes_atual_num = datetime.now().month
+    mes_atual = _ascii_lower(_MESES_PT[mes_atual_num])
     all_xlsx = glob.glob(os.path.join(DATA_DIR, "*.xlsx"))
 
     # 1. Entre as Escala_*.xlsx com nome do mês atual, escolhe por conteúdo (formato
@@ -452,13 +461,30 @@ def _selecionar_arquivo() -> str | None:
         for f in escalas_mes_atual[1:]:
             melhor = _prefere_arquivo(melhor, f)
         return melhor
+
+    # 2. Fallback: nenhuma escala do mês atual (gap real — ex: pulou direto de um
+    # mês pra outro sem planilha do mês vigente). Nunca escolhe o arquivo de um mês
+    # que ainda não começou: planilhas futuras costumam chegar com antecedência
+    # (ex: a escala de dezembro já pronta em novembro, pra trocar sozinha no dia 1º
+    # sem redeploy), e sem esse filtro o desempate por mtime em _prefere_arquivo
+    # sempre escolheria a mais recentemente copiada, que normalmente é a do mês
+    # futuro — servindo a escala errada antes da hora. Confirmado com dado real no
+    # módulo irmão (units/brasilandia/colaboradores.py): adicionar a escala de
+    # dezembro da HMB (sem planilha de novembro) fazia esse fallback preferi-la
+    # sobre a de outubro, embora ainda estivéssemos em novembro.
     if escalas:
-        melhor = escalas[0]
-        for f in escalas[1:]:
+        escalas_nao_futuras = []
+        for f in escalas:
+            mes_arquivo = _mes_do_nome_arquivo(os.path.basename(f))
+            if mes_arquivo is None or mes_arquivo <= mes_atual_num:
+                escalas_nao_futuras.append(f)
+        pool = escalas_nao_futuras or escalas
+        melhor = pool[0]
+        for f in pool[1:]:
             melhor = _prefere_arquivo(melhor, f)
         return melhor
 
-    # 2. Fallback: colaboradores*.xlsx mais recente
+    # 3. Fallback: colaboradores*.xlsx mais recente
     colabs = [f for f in all_xlsx if "colaboradores" in os.path.basename(f).lower()]
     return max(colabs, key=os.path.basename) if colabs else None
 
