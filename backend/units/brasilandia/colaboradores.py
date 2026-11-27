@@ -15,8 +15,9 @@ from datetime import datetime
 import pandas as pd
 
 from core import colaboradores_overlay as _overlay
+from core.regras import elegibilidade as _eleg
 from core.planejamento import detectar_paridade
-from units.brasilandia.config import DATA_DIR
+from units.brasilandia.config import DATA_DIR, OVERLAY
 
 _colab_cache: dict = {"df": None, "ts": 0.0}
 _COLAB_TTL = 600  # 10 minutos
@@ -230,7 +231,9 @@ def _eh_formato_calendario(df_raw) -> bool:
 def _detectar_colunas_escala(df_raw) -> dict:
     _NOMES = {"nome", "funcionario", "colaborador", "servidor", "diarista"}
     _CARGOS = {"funcao", "cargo", "funcao/cargo"}
-    _PLANTAO = {"plantao", "plantaoo", "plant"}
+    # "escala" confirmado na planilha real de outubro/2026 — coluna nova (não
+    # existia em setembro), com texto tipo "Diurno impar"/"Noturno par"/"Comercial".
+    _PLANTAO = {"plantao", "plantaoo", "plant", "escala"}
     _HORARIO = {"horario", "hora", "carga horaria"}
 
     # Detecta a linha de cabeçalho: primeira com >= 10 dias ou com keyword "nome"/"cargo"
@@ -335,12 +338,18 @@ def _parse_calendario(df_raw):
         if not cargo or cargo.lower() in ("nan", ""):
             continue
 
-        # Novo formato: Plantão define turno e regime
+        # Novo formato: Plantão/Escala define turno e regime. Usa
+        # _parse_plantao_regime_hmb (a mesma função do formato rico/por-grupo — busca
+        # por palavra-chave + detectar_paridade) em vez de _parse_plantao_br: a
+        # coluna "Escala" real de outubro/2026 vem sem traço ("Diurno impar", não
+        # "Diurno - Ímpar"), e _parse_plantao_br (split por "-") lia isso tudo como
+        # turno="Diurno impar" e regime="Fixo" — errado. _parse_plantao_regime_hmb
+        # cobre os dois formatos (com e sem traço) igualmente bem.
         if col_plantao is not None:
             plantao_raw = str(df_raw.iloc[i, col_plantao] or "").strip()
             if not plantao_raw or plantao_raw.lower() == "nan":
                 continue  # linha de legenda/rodapé sem plantão → ignorar
-            turno_atual, regime = _parse_plantao_br(plantao_raw)
+            turno_atual, regime, _tipo_posto, _provisorio = _parse_plantao_regime_hmb(plantao_raw)
         else:
             regime = "Fixo"  # formato antigo: regime sempre Fixo
 
@@ -503,7 +512,9 @@ def _selecionar_aba(xl: pd.ExcelFile) -> str:
 
 def carregar_colaboradores():
     """Detecta o arquivo e formato da escala e retorna DataFrame com colaboradores. Cache 10 min."""
-    if _colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL:
+    if (_colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL
+            and _colab_cache.get("ver") in (None, OVERLAY.version())):
+        # `ver` = versão do overlay no banco: uma alteração feita em OUTRO worker invalida este cache
         return _colab_cache["df"]
 
     path = _selecionar_arquivo()
@@ -542,11 +553,12 @@ def carregar_colaboradores():
             df[col] = default
     df["aviso"] = df["aviso"].astype(object).where(df["aviso"].notna(), None)
 
-    df = _overlay.aplicar_overlay(df, DATA_DIR)
+    df = _overlay.aplicar_overlay(df, OVERLAY)
 
     print(f"[BR] colaboradores OK | {path} | aba={sheet!r} | modo={modo} | {len(df)} pessoas")
     _colab_cache["df"] = df
     _colab_cache["ts"] = time.time()
+    _colab_cache["ver"] = OVERLAY.version()
     return df
 
 
@@ -554,13 +566,22 @@ def invalidar_cache() -> None:
     """Força o próximo carregar_colaboradores() a reler o Excel + overlay do disco."""
     _colab_cache["df"] = None
     _colab_cache["ts"] = 0.0
+    _colab_cache["ver"] = None
 
 
 def esta_disponivel(row, data_os) -> bool:
     """Brasilândia verifica status por dia no calendário; fallback Par/Ímpar.
     Colaborador bloqueado (aptidão pendente) nunca está disponível, mesmo com
-    plantão agendado no dia — mesma regra da unidade Hetrin."""
-    if row.get("bloqueado"):
+    plantão agendado no dia — mesma regra da unidade Hetrin.
+
+    dentro_do_vinculo() (core/colaboradores_overlay.py) checa admissão/desligamento
+    por DIA — complementa o campo `status` (Ativo/Desligado), que já é aplicado antes
+    disso na camada de rota (_colab_ativos) e só vale pro mês inteiro. Mesma exposição
+    estrutural da HETRIN (confirmado por simetria de arquitetura, ver core/
+    colaboradores_overlay.py::dentro_do_vinculo)."""
+    # Elegibilidade central (core/regras/elegibilidade.py): cargo executa OS, status não
+    # Desligado, dentro do vínculo (admissão/desligamento) e não bloqueado.
+    if not _eleg.elegivel(row, data_os):
         return False
 
     dias_plantao = row.get("dias_plantao", {})

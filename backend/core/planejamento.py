@@ -23,7 +23,10 @@ _RE_PAR = re.compile(r"\bPAR\b")
 # noturno de plantão real). \bDIA\b não confunde com "DIÁRIA"/"DIÁRIO" (word-boundary
 # não bate no meio de outra palavra) nem com a unidade de periodicidade ("2 Dias" vem
 # de um campo separado, nunca do nome do plano analisado aqui.
-_RE_NOTURNO = re.compile(r"\b(NOTURNO|NOITE)\b")
+# "NOTURN" truncado também conta: o Neovero corta o nome do plano num limite fixo de
+# caracteres (ex.: "...ILUMINAÇÃO 23H NOTURN"); sem isso essas rondas noturnas eram
+# tratadas como diurnas.
+_RE_NOTURNO = re.compile(r"\b(NOTURN[OA]?|NOITE)\b")
 _RE_DIURNO = re.compile(r"\b(DIURNO|DIA)\b")
 
 

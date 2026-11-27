@@ -1,1 +1,6 @@
 .vercel
+
+# Banco local e segredos
+data/app.db
+data/app.db-*
+.env

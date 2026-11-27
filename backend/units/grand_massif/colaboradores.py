@@ -18,7 +18,8 @@ from datetime import datetime
 import pandas as pd
 
 from core import colaboradores_overlay as _overlay
-from units.grand_massif.config import DATA_DIR
+from core.regras import elegibilidade as _eleg
+from units.grand_massif.config import DATA_DIR, OVERLAY
 
 _colab_cache: dict = {"df": None, "ts": 0.0}
 _COLAB_TTL = 600  # 10 minutos
@@ -248,7 +249,12 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
     _PLANTAO = {"plantão", "plantao", "plant", "planta"}
     _HORARIO = {"horario", "horário", "hora", "carga horaria"}
     _SEPARADORES = {"DIURNO": "Diurno", "NOTURNO": "Noturno"}
-    _MARCADORES_VAGA = ("vaga", "posicao nao coberta")
+    # "em processo de contratação" confirmado na planilha real de outubro/2026 (2
+    # linhas de vaga em aberto, nome literal "Em  processo de contratação" — sem
+    # pessoa real por trás). Mesmo padrão de vaga fantasma já resolvido pra
+    # "vaga"/"posição não coberta"; ver também _MARCADORES_VAGA_HMB em
+    # units/brasilandia/colaboradores.py, que já cobria esse texto pro outro formato.
+    _MARCADORES_VAGA = ("vaga", "posicao nao coberta", "em processo de contratacao")
 
     col_nome, col_cargo, col_plantao, col_horario = 2, 4, None, 6
     dia_col: dict[int, int] = {}
@@ -294,7 +300,12 @@ def _parse_calendario_gm(df_raw) -> pd.DataFrame | None:
         nome = cell_nome.strip()
         if nome.upper() in ("NAN", ""):
             continue
-        if any(_ascii_lower(nome).startswith(m) for m in _MARCADORES_VAGA):
+        # " ".join(...split()) colapsa espaços duplos — confirmado na planilha real
+        # de outubro/2026, o nome da vaga vem literalmente como "Em  processo de
+        # contratação" (dois espaços entre "Em" e "processo"), o que quebraria um
+        # startswith() ingênuo contra o marcador normalizado de um espaço só.
+        nome_norm_vaga = " ".join(_ascii_lower(nome).split())
+        if any(nome_norm_vaga.startswith(m) for m in _MARCADORES_VAGA):
             continue  # vaga/posição em aberto (ex: "POSIÇÃO NÃO COBERTA") — não é um colaborador real
 
         cargo_cell = df_raw.iloc[i, col_cargo]
@@ -477,7 +488,9 @@ def _selecionar_aba(xl: pd.ExcelFile, caminho: str = "") -> str:
 
 def carregar_colaboradores():
     """Carrega colaboradores. Prioriza Escala_*.xlsx (calendário) sobre colaboradores*.xlsx. Cache 10 min."""
-    if _colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL:
+    if (_colab_cache["df"] is not None and time.time() - _colab_cache["ts"] < _COLAB_TTL
+            and _colab_cache.get("ver") in (None, OVERLAY.version())):
+        # `ver` = versão do overlay no banco: uma alteração feita em OUTRO worker invalida este cache
         return _colab_cache["df"]
 
     arquivo = _selecionar_arquivo()
@@ -521,11 +534,12 @@ def carregar_colaboradores():
         print(f"[GM] ERRO: nenhuma linha válida | {arquivo} | aba={sheet!r}")
         return None
 
-    df = _overlay.aplicar_overlay(df, DATA_DIR)
+    df = _overlay.aplicar_overlay(df, OVERLAY)
 
     print(f"[GM] colaboradores OK | {arquivo} | aba={sheet!r} | modo={modo} | {len(df)} pessoas")
     _colab_cache["df"] = df
     _colab_cache["ts"] = time.time()
+    _colab_cache["ver"] = OVERLAY.version()
     return df
 
 
@@ -533,14 +547,28 @@ def invalidar_cache() -> None:
     """Força o próximo carregar_colaboradores() a reler o Excel + overlay do disco."""
     _colab_cache["df"] = None
     _colab_cache["ts"] = 0.0
+    _colab_cache["ver"] = None
 
 
 def esta_disponivel(row, data_os) -> bool:
     """Verifica disponibilidade: usa calendário diário se disponível, senão regime Par/Ímpar/Fixo.
     Colaborador bloqueado (ex: status "Condicionado" pendente de documentação) nunca está
     disponível, mesmo que o código do dia mostre plantão agendado — o bloqueio é sobre
-    aptidão, não sobre escala."""
-    if row.get("bloqueado"):
+    aptidão, não sobre escala.
+
+    dentro_do_vinculo() checa admissão/desligamento por DIA (ver core/colaboradores_
+    overlay.py) — diferente do campo `status` (Ativo/Desligado), que já é aplicado
+    antes disso, na camada de rota (_colab_ativos), e vale pro mês inteiro. Um
+    colaborador desligado no MEIO do mês (ex: contrato de experiência encerrado dia
+    16) continua com código de plantão normal no calendário da planilha até o fim do
+    mês — sem esse check, esta_disponivel() nunca saberia disso e continuaria
+    recomendando a pessoa até alguém trocar a planilha do mês seguinte ou setar
+    status="Desligado" manualmente (confirmado com dado real: foi exatamente isso que
+    aconteceu na HETRIN em set/2026 — 3 colaboradores desligados continuaram sendo
+    recomendados em preventivas e em OS reais do Neovero pelo resto do mês)."""
+    # Elegibilidade central (core/regras/elegibilidade.py): cargo executa OS, status não
+    # Desligado, dentro do vínculo (admissão/desligamento) e não bloqueado.
+    if not _eleg.elegivel(row, data_os):
         return False
 
     dias_plantao = row.get("dias_plantao", {})

@@ -8,7 +8,7 @@ dados reais das planilhas — não só casos sintéticos. Cobre especificamente:
 - isolamento entre unidades (nenhum nome se repete entre as duas planilhas).
 """
 import os
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import pytest
@@ -25,6 +25,26 @@ HMB_DISPONIVEL = os.path.exists(br.DATA_DIR) and any(
 
 pytestmark_hetrin = pytest.mark.skipif(not HETRIN_DISPONIVEL, reason="planilha real da Hetrin não presente neste ambiente")
 pytestmark_hmb = pytest.mark.skipif(not HMB_DISPONIVEL, reason="planilha real da HMB não presente neste ambiente")
+
+
+class _SetembroCongelado(datetime):
+    """Estes testes validam dados REAIS da escala de setembro/2026. O loader escolhe o arquivo
+    pelo mês corrente; sem congelar o relógio, os testes passavam a validar outro mês (e
+    quebraram quando a escala de outubro entrou — a migração de out/2026 não os atualizou)."""
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 9, 15, 12, 0)
+
+
+@pytest.fixture(autouse=True)
+def _mes_de_referencia_setembro(monkeypatch):
+    monkeypatch.setattr(gm, "datetime", _SetembroCongelado)
+    monkeypatch.setattr(br, "datetime", _SetembroCongelado)
+    gm.invalidar_cache()
+    br.invalidar_cache()
+    yield
+    gm.invalidar_cache()
+    br.invalidar_cache()
 
 
 @pytest.fixture
@@ -161,13 +181,37 @@ def test_nomes_nao_se_repetem_entre_hetrin_e_hmb(colab_hetrin, colab_hmb):
 # "o mais recente de verdade" assim que o app ia pro Railway. A escolha precisa
 # ser baseada no conteúdo do arquivo (formato rico), nunca em metadado do
 # sistema de arquivos.
+#
+# Não basta contar >= 2 arquivos "escala" no diretório: desde a migração de
+# setembro/2026 (provedor novo, formato calendário "ESCALA DE FOLGA"), é normal e
+# esperado ter 2 arquivos calendário lado a lado (mês atual + próximo mês já
+# carregado com antecedência, cada um pego automaticamente pelo nome do mês no
+# arquivo — ver _selecionar_arquivo). Isso não é o cenário que este teste cobre
+# (arquivo antigo formato rico/12x36 x novo calendário, ou vice-versa); precisa
+# genuinamente de pelo menos um arquivo em CADA formato pra fazer sentido — senão
+# o teste roda contra 2 arquivos calendário e falha por premissa errada, não por
+# bug real (confirmado: aconteceu ao adicionar a escala de outubro/2026 ao lado da
+# de setembro, ambas calendário).
 
-_TEM_DOIS_ARQUIVOS_HETRIN = os.path.exists(gm.DATA_DIR) and sum(
-    1 for f in os.listdir(gm.DATA_DIR) if f.lower().endswith(".xlsx") and "escala" in f.lower()
-) >= 2
-_TEM_DOIS_ARQUIVOS_HMB = os.path.exists(br.DATA_DIR) and sum(
-    1 for f in os.listdir(br.DATA_DIR) if f.lower().endswith(".xlsx") and "escala" in f.lower()
-) >= 2
+def _formatos_presentes(data_dir: str, eh_rico_fn) -> set:
+    formatos = set()
+    for f in os.listdir(data_dir):
+        if not (f.lower().endswith(".xlsx") and "escala" in f.lower()):
+            continue
+        try:
+            df_raw = pd.read_excel(os.path.join(data_dir, f), sheet_name=0, header=None, engine="openpyxl")
+            formatos.add("rico" if eh_rico_fn(df_raw) else "outro")
+        except Exception:
+            continue
+    return formatos
+
+
+_TEM_DOIS_ARQUIVOS_HETRIN = os.path.exists(gm.DATA_DIR) and _formatos_presentes(
+    gm.DATA_DIR, gm._eh_formato_rico
+) == {"rico", "outro"}
+_TEM_DOIS_ARQUIVOS_HMB = os.path.exists(br.DATA_DIR) and _formatos_presentes(
+    br.DATA_DIR, br._eh_formato_rico_hmb
+) == {"rico", "outro"}
 
 
 @pytest.mark.skipif(not _TEM_DOIS_ARQUIVOS_HETRIN, reason="precisa da planilha antiga e da nova lado a lado")
@@ -231,6 +275,55 @@ def test_hetrin_calendario_turno_via_separador_diurno_noturno():
     ciclana = resultado[resultado["funcionario"] == "Ciclana da Silva"].iloc[0]
     assert fulano["turno"] == "Diurno"
     assert ciclana["turno"] == "Noturno"
+
+
+# ── esta_disponivel() respeita data de desligamento no meio do mês ──────────────
+# Bug real confirmado por auditoria (HETRIN, set/2026): 3 colaboradores com contrato
+# de experiência encerrado em datas específicas dentro do mês continuaram aparecendo
+# como disponíveis (e sendo recomendados) até o fim do mês, porque esta_disponivel()
+# só olhava o código do dia no calendário (D/F/N), nunca uma data de desligamento —
+# mesmo com código de plantão normal agendado pra depois do desligamento real.
+
+def test_hetrin_esta_disponivel_respeita_data_desligamento_no_meio_do_mes():
+    row = {
+        "cargo": "Técnico de Climatização", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {d: "P" for d in range(1, 31)},  # presente todo santo dia no calendário
+        "data_desligamento": "2026-09-16",
+    }
+    assert gm.esta_disponivel(row, date(2026, 9, 15)) is True
+    assert gm.esta_disponivel(row, date(2026, 9, 16)) is False
+    assert gm.esta_disponivel(row, date(2026, 9, 30)) is False
+
+
+def test_hetrin_esta_disponivel_sem_data_desligamento_nao_muda_nada():
+    row = {
+        "cargo": "Eletricista", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {10: "P"},
+    }
+    assert gm.esta_disponivel(row, date(2026, 9, 10)) is True
+
+
+def test_hmb_esta_disponivel_respeita_data_desligamento_no_meio_do_mes():
+    row = {
+        "cargo": "Eletricista", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {d: "D" for d in range(1, 31)},
+        "data_desligamento": "2026-09-11",
+    }
+    assert br.esta_disponivel(row, date(2026, 9, 10)) is True
+    assert br.esta_disponivel(row, date(2026, 9, 11)) is False
+    assert br.esta_disponivel(row, date(2026, 9, 30)) is False
+
+
+def test_hmb_esta_disponivel_respeita_data_admissao():
+    """Contratado no meio do mês, mas o calendário da planilha já vem preenchido
+    desde o dia 1 — sem a data de admissão, o sistema acharia disponível cedo demais."""
+    row = {
+        "cargo": "Aux. Manutenção", "turno": "Diurno", "bloqueado": False,
+        "dias_plantao": {d: "D" for d in range(1, 31)},
+        "data_admissao": "2026-09-15",
+    }
+    assert br.esta_disponivel(row, date(2026, 9, 14)) is False
+    assert br.esta_disponivel(row, date(2026, 9, 15)) is True
 
 
 @pytest.mark.skipif(not _TEM_DOIS_ARQUIVOS_HMB, reason="precisa da planilha antiga e da nova lado a lado")

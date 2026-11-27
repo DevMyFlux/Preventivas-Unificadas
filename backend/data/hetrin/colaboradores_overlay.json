@@ -1,6 +1,29 @@
 {
+  "ALCEU RODRIGUES JUNIOR": {
+    "data_admissao": "2026-10-13",
+    "nome": "Alceu Rodrigues Junior"
+  },
+  "CARLOS AURÉLIO DE CARVALHO": {
+    "data_desligamento": "2026-09-11",
+    "nome": "Carlos Aurélio de Carvalho",
+    "status": "Desligado"
+  },
+  "EDUARDO OLIVEIRA DA CUNHA": {
+    "data_admissao": "2026-10-02",
+    "nome": "Eduardo Oliveira da Cunha"
+  },
+  "MAIKON JONATHAS GOMES BESSA": {
+    "data_desligamento": "2026-09-16",
+    "nome": "Maikon Jonathas Gomes Bessa",
+    "status": "Desligado"
+  },
   "WELLINGTON DE SOUZA BRITO": {
     "aviso": "Bloqueado — status \"Condicionado\": Atuação condicionada à validação da qualificação e autorização elétrica.",
     "bloqueado": true
+  },
+  "WILLIAM MIRANDA DE MORAES": {
+    "data_desligamento": "2026-09-22",
+    "nome": "William Miranda de Moraes",
+    "status": "Desligado"
   }
 }
